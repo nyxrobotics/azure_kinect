@@ -1703,7 +1703,7 @@ std::vector<std::string> K4AROSDevice::getKinectPorts()
   alarm(5);
 
   // Run lsusb command and parse its output
-  FILE* lsusbPipe = popen("lsusb -v", "r");
+  FILE* lsusbPipe = popen("lsusb -v 2>/dev/null", "r");
   if (!lsusbPipe)
   {
     ROS_ERROR("Error running lsusb command");
@@ -1765,7 +1765,7 @@ std::vector<std::string> K4AROSDevice::getKinectPorts()
   alarm(5);
 
   // Run lsusb -t command and parse its output
-  FILE* lsusbTPipe = popen("lsusb -t -v", "r");
+  FILE* lsusbTPipe = popen("lsusb -t -v 2>/dev/null", "r");
   if (!lsusbTPipe)
   {
     ROS_ERROR("Error running lsusb -t -v command");
