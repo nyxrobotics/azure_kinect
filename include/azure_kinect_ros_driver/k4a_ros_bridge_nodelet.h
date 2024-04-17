@@ -6,15 +6,6 @@
 
 // System headers
 //
-#include <cstdlib>
-#include <cstdio>
-#include <cstring>
-#include <cerrno>
-#include <fcntl.h>
-#include <unistd.h>
-#include <dirent.h>
-#include <linux/usbdevice_fs.h>
-#include <sys/ioctl.h>
 // Library headers
 //
 #include <ros/ros.h>

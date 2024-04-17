@@ -65,7 +65,15 @@ K4AROSDevice::K4AROSDevice(const NodeHandle& n, const NodeHandle& p)
   , imu_stream_end_of_file_(false)
   , initialized_(false)
   , running_(false)
+  , usb_device_ports_()
 {
+  // Get USB Ports for Azure Kinect devices
+  usb_device_ports_ = getKinectPorts();
+  if (usb_device_ports_.empty())
+  {
+    ROS_ERROR("No Azure Kinect devices found.");
+    return;
+  }
   // Collect ROS parameters from the param server or from the command line
 #define LIST_ENTRY(param_variable, param_help_string, param_type, param_default_val)                                   \
   private_node_.param(#param_variable, params_.param_variable, param_default_val);
@@ -352,7 +360,12 @@ K4AROSDevice::K4AROSDevice(const NodeHandle& n, const NodeHandle& p)
 K4AROSDevice::~K4AROSDevice()
 {
   // Start tearing down the publisher threads
-
+  ROS_INFO("Start disconnecting from device");
+  if (!usb_device_ports_.empty())
+  {
+    resetPorts(usb_device_ports_);
+  }
+  ROS_INFO("Disconnected");
 #if defined(K4A_BODY_TRACKING)
   if (body_publisher_thread_.joinable())
   {
@@ -394,10 +407,6 @@ K4AROSDevice::~K4AROSDevice()
 #endif
 
   // Stop the K4A device
-  if (k4a_device_)
-  {
-    k4a_device_.close();
-  }
   stopCameras();
   stopImu();
 }
@@ -1681,6 +1690,89 @@ std::chrono::microseconds K4AROSDevice::getCaptureTimestamp(const k4a::capture& 
 bool K4AROSDevice::isRunning()
 {
   return running_;
+}
+
+std::vector<std::string> K4AROSDevice::getKinectPorts()
+{
+  std::vector<std::string> usb_device_ports;
+
+  // Set alarm for timeout
+  alarm(5);
+
+  // Run lsusb command and parse its output
+  FILE* lsusbPipe = popen("lsusb -v", "r");
+  if (!lsusbPipe)
+  {
+    ROS_ERROR("Error running lsusb command");
+    running_ = false;
+    return usb_device_ports;
+  }
+
+  char line[1024];
+  std::string devicePath;
+  while (fgets(line, sizeof(line), lsusbPipe) != nullptr)
+  {
+    // Check if this line contains "iProduct" field
+    if (strstr(line, "iProduct") != nullptr)
+    {
+      // Check if the line contains "Azure Kinect"
+      if (strstr(line, "Azure Kinect") != nullptr)
+      {
+        // Extract the device path from the previous lines
+        if (!devicePath.empty())
+        {
+          // Store the USB device port for later use
+          usb_device_ports.push_back(devicePath);
+          devicePath.clear();
+        }
+      }
+    }
+    else if (strstr(line, "Bus") != nullptr && strstr(line, "Device") != nullptr)
+    {
+      // Extract the device path from the line
+      char* colonPos = strchr(line, ':');
+      if (colonPos != nullptr)
+      {
+        // Extract bus and device numbers
+        std::string busDeviceString(colonPos + 2, 3);
+        devicePath = "/dev/bus/usb/" + busDeviceString + "/";
+      }
+    }
+  }
+  pclose(lsusbPipe);
+
+  // Cancel alarm
+  alarm(0);
+
+  return usb_device_ports;
+}
+
+void K4AROSDevice::resetPorts(const std::vector<std::string>& ports)
+{
+  // Reset USB devices containing "Azure Kinect" in their description
+  for (const auto& devicePath : ports)
+  {
+    int fd = open(devicePath.c_str(), O_WRONLY);
+    if (fd != -1)
+    {
+      struct usbdevfs_ioctl command;
+      command.ifno = 0;  // Interface number (usually 0)
+      command.ioctl_code = USBDEVFS_DISCONNECT;
+      if (ioctl(fd, USBDEVFS_IOCTL, &command) == -1)
+      {
+        ROS_WARN("Error disconnecting USB device: %s", strerror(errno));
+      }
+      else
+      {
+        ROS_INFO("USB device reset: %s", devicePath.c_str());
+      }
+      close(fd);
+    }
+    else
+    {
+      ROS_WARN("Error opening USB device: %s", strerror(errno));
+    }
+  }
 }
 
 // Converts a k4a *device* timestamp to a ros::Time object

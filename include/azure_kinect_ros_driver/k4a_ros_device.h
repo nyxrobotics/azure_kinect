@@ -10,6 +10,15 @@
 #include <mutex>
 #include <thread>
 
+#include <cstdlib>
+#include <cstdio>
+#include <cstring>
+#include <cerrno>
+#include <fcntl.h>
+#include <unistd.h>
+#include <dirent.h>
+#include <linux/usbdevice_fs.h>
+#include <sys/ioctl.h>
 // Library headers
 //
 #include <image_transport/image_transport.h>
@@ -69,9 +78,12 @@ public:
 
   k4a_result_t getIrFrame(const k4a::capture& capture, sensor_msgs::ImagePtr& ir_image);
   bool isRunning();
+  std::vector<std::string> getKinectPorts();
+  void resetPorts(const std::vector<std::string>& ports);
 
 #if defined(K4A_BODY_TRACKING)
-k4a_result_t getBodyMarker(const k4abt_body_t& body, visualization_msgs::MarkerPtr marker_msg, geometry_msgs::TransformStamped& transform_msg, int bodyNum, int jointType,
+  k4a_result_t getBodyMarker(const k4abt_body_t& body, visualization_msgs::MarkerPtr marker_msg,
+                             geometry_msgs::TransformStamped& transform_msg, int bodyNum, int jointType,
                              ros::Time capture_time);
 
   k4a_result_t getBodyIndexMap(const k4abt::frame& body_frame, sensor_msgs::ImagePtr body_index_map_image);
@@ -148,6 +160,7 @@ private:
   ros::Publisher pointcloud_publisher_;
 
   std::shared_ptr<camera_info_manager::CameraInfoManager> ci_mngr_rgb_, ci_mngr_ir_;
+  std::vector<std::string> usb_device_ports_;
 
 #if defined(K4A_BODY_TRACKING)
   ros::Publisher body_marker_publisher_;
@@ -179,8 +192,14 @@ private:
   k4abt::tracker k4abt_tracker_;
   std::atomic_int16_t k4abt_tracker_queue_size_;
   std::thread body_publisher_thread_;
-  
-  std::vector<std::string> joint_names_{"Pelvis", "Spine_Naval", "Spine_Chest", "Neck", "Clavicle_left", "Shoulder_left", "Elbow_left", "Wrist_left", "Hand_left", "Handtip_left", "thumb_left", "Clavicle_right", "Shoulder_right", "Elbow_right", "Wrist_right", "Hand_right", "Handtip_right", "Thumb_right", "Hip_left", "Knee_left", "Ankle_left", "Foot_left", "Hip_right", "Knee_right", "Ankle_right", "Foot_right", "Head", "Nose", "Eye_Left", "Ear_Left", "Eye_Right", "Ear_Right"};
+
+  std::vector<std::string> joint_names_{
+    "Pelvis",      "Spine_Naval", "Spine_Chest",   "Neck",        "Clavicle_left",  "Shoulder_left",  "Elbow_left",
+    "Wrist_left",  "Hand_left",   "Handtip_left",  "thumb_left",  "Clavicle_right", "Shoulder_right", "Elbow_right",
+    "Wrist_right", "Hand_right",  "Handtip_right", "Thumb_right", "Hip_left",       "Knee_left",      "Ankle_left",
+    "Foot_left",   "Hip_right",   "Knee_right",    "Ankle_right", "Foot_right",     "Head",           "Nose",
+    "Eye_Left",    "Ear_Left",    "Eye_Right",     "Ear_Right"
+  };
   size_t num_bodies;
 #endif
 
