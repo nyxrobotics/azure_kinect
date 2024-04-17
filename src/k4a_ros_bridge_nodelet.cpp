@@ -73,41 +73,45 @@ std::vector<std::string> K4AROSBridgeNodelet::getKinectPorts()
   // Set alarm for timeout
   alarm(5);
 
-  // Find USB devices containing "Azure Kinect" in their description
-  const char* usbDevicesDir = "/dev/";
-  DIR* dir = opendir(usbDevicesDir);
-  if (!dir)
+  // Run lsusb command and parse its output
+  FILE* lsusbPipe = popen("lsusb -v", "r");
+  if (!lsusbPipe)
   {
-    throw nodelet::Exception("Error opening USB devices directory");
+    throw nodelet::Exception("Error running lsusb command");
   }
 
-  struct dirent* entry;
-  while ((entry = readdir(dir)) != nullptr)
+  char line[1024];
+  std::string devicePath;
+  while (fgets(line, sizeof(line), lsusbPipe) != nullptr)
   {
-    if (entry->d_type == DT_CHR)
+    // Check if this line contains "iProduct" field
+    if (strstr(line, "iProduct") != nullptr)
     {
-      char devicePath[256];
-      snprintf(devicePath, sizeof(devicePath), "%s%s", usbDevicesDir, entry->d_name);
-
-      // Open the device file to read the device name
-      FILE* file = fopen(devicePath, "r");
-      if (file)
+      // Check if the line contains "Azure Kinect"
+      if (strstr(line, "Azure Kinect") != nullptr)
       {
-        char deviceName[256];
-        if (fgets(deviceName, sizeof(deviceName), file) != nullptr)
+        // Extract the device path from the previous lines
+        if (!devicePath.empty())
         {
-          // Check if the device name contains "Azure Kinect"
-          if (strstr(deviceName, "Azure Kinect") != nullptr)
-          {
-            // Store the USB device port for later use
-            usb_device_ports.push_back(devicePath);
-          }
+          // Store the USB device port for later use
+          usb_device_ports.push_back(devicePath);
+          devicePath.clear();
         }
-        fclose(file);
+      }
+    }
+    else if (strstr(line, "Bus") != nullptr && strstr(line, "Device") != nullptr)
+    {
+      // Extract the device path from the line
+      char* colonPos = strchr(line, ':');
+      if (colonPos != nullptr)
+      {
+        // Extract bus and device numbers
+        std::string busDeviceString(colonPos + 2, 3);
+        devicePath = "/dev/bus/usb/" + busDeviceString + "/";
       }
     }
   }
-  closedir(dir);
+  pclose(lsusbPipe);
 
   // Cancel alarm
   alarm(0);
