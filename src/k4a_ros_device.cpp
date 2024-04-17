@@ -1694,7 +1694,9 @@ bool K4AROSDevice::isRunning()
 
 std::vector<std::string> K4AROSDevice::getKinectPorts()
 {
-  std::vector<std::string> usb_device_ports;
+  std::vector<std::string> device_paths;
+  std::vector<std::string> id_vendor;
+  std::vector<std::string> id_product;
 
   // Set alarm for timeout
   alarm(5);
@@ -1705,37 +1707,50 @@ std::vector<std::string> K4AROSDevice::getKinectPorts()
   {
     ROS_ERROR("Error running lsusb command");
     running_ = false;
-    return usb_device_ports;
+    return device_paths;
   }
 
+  std::string current_id_vendor;
+  std::string current_id_product;
   char line[1024];
-  std::string devicePath;
   while (fgets(line, sizeof(line), lsusbPipe) != nullptr)
   {
+    // Check if this line contains "idVendor" field
+    if (strstr(line, "idVendor") != nullptr)
+    {
+      // Extract idVendor
+      char* idVendor = strchr(line, ':');
+      if (idVendor != nullptr)
+      {
+        current_id_vendor = std::string(idVendor + 2);
+      }
+    }
+    // Check if this line contains "idProduct" field
+    if (strstr(line, "idProduct") != nullptr)
+    {
+      // Extract idProduct
+      char* idProduct = strchr(line, ':');
+      if (idProduct != nullptr)
+      {
+        current_id_product = std::string(idProduct + 2);
+      }
+    }
     // Check if this line contains "iProduct" field
     if (strstr(line, "iProduct") != nullptr)
     {
       // Check if the line contains "Azure Kinect"
       if (strstr(line, "Azure Kinect") != nullptr)
       {
-        // Extract the device path from the previous lines
-        if (!devicePath.empty())
+        ROS_INFO("Azure Kinect device found with idVendor: %s and idProduct: %s", current_id_vendor.c_str(),
+                 current_id_product.c_str());
+        // Check if idVendor and idProduct were found
+        if (!current_id_vendor.empty() && !current_id_product.empty())
         {
-          // Store the USB device port for later use
-          usb_device_ports.push_back(devicePath);
-          devicePath.clear();
+          id_vendor.push_back(current_id_vendor);
+          id_product.push_back(current_id_product);
+          current_id_vendor.clear();
+          current_id_product.clear();
         }
-      }
-    }
-    else if (strstr(line, "Bus") != nullptr && strstr(line, "Device") != nullptr)
-    {
-      // Extract the device path from the line
-      char* colonPos = strchr(line, ':');
-      if (colonPos != nullptr)
-      {
-        // Extract bus and device numbers
-        std::string busDeviceString(colonPos + 2, 3);
-        devicePath = "/dev/bus/usb/" + busDeviceString + "/";
       }
     }
   }
@@ -1744,34 +1759,82 @@ std::vector<std::string> K4AROSDevice::getKinectPorts()
   // Cancel alarm
   alarm(0);
 
-  return usb_device_ports;
+  // Check if Azure Kinect devices were found
+  if (id_vendor.empty() || id_product.empty())
+  {
+    ROS_INFO("No Azure Kinect devices found");
+    return device_paths;
+  }
+
+  // Set alarm for timeout
+  alarm(5);
+
+  // Run lsusb -t command and parse its output
+  FILE* lsusbTPipe = popen("lsusb -t", "r");
+  if (!lsusbTPipe)
+  {
+    ROS_ERROR("Error running lsusb -t command");
+    running_ = false;
+    return device_paths;
+  }
+
+  // Find the ports of Azure Kinect devices
+  std::string current_bus;
+  std::string current_port;
+  while (fgets(line, sizeof(line), lsusbTPipe) != nullptr)
+  {
+    for (size_t i = 0; i < id_vendor.size(); ++i)
+    {
+      const std::string& current_id_vendor = id_vendor[i];
+      const std::string& current_id_product = id_product[i];
+      // Check if this line contains the idVendor and idProduct of an Azure Kinect device
+      if (strstr(line, current_id_vendor.c_str()) != nullptr && strstr(line, current_id_product.c_str()) != nullptr)
+      {
+        // Extract bus and port numbers
+        char* busPos = strchr(line, '-');
+        char* portPos = strchr(line, ':');
+        if (busPos != nullptr && portPos != nullptr)
+        {
+          current_bus = std::string(busPos - 3, 3);
+          current_port = std::string(portPos - 2, 2);
+          device_paths.push_back("/dev/bus/usb/" + current_bus + "/" + current_port);
+          ROS_INFO("Azure Kinect device found at %s", device_paths.back().c_str());
+        }
+      }
+    }
+  }
+  pclose(lsusbTPipe);
+
+  // Cancel alarm
+  alarm(0);
+
+  return device_paths;
 }
 
 void K4AROSDevice::resetPorts(const std::vector<std::string>& ports)
 {
   // Reset USB devices containing "Azure Kinect" in their description
-  for (const auto& devicePath : ports)
+  for (const auto& device_path : ports)
   {
-    int fd = open(devicePath.c_str(), O_WRONLY);
-    if (fd != -1)
+    // Open device
+    int fd = open(device_path.c_str(), O_WRONLY);
+    if (fd == -1)
     {
-      struct usbdevfs_ioctl command;
-      command.ifno = 0;  // Interface number (usually 0)
-      command.ioctl_code = USBDEVFS_DISCONNECT;
-      if (ioctl(fd, USBDEVFS_IOCTL, &command) == -1)
-      {
-        ROS_WARN("Error disconnecting USB device: %s", strerror(errno));
-      }
-      else
-      {
-        ROS_INFO("USB device reset: %s", devicePath.c_str());
-      }
-      close(fd);
+      ROS_WARN("Error opening USB device: %s", strerror(errno));
+      continue;
+    }
+
+    // Unbind device
+    if (ioctl(fd, USBDEVFS_DISCONNECT) == -1)
+    {
+      ROS_WARN("Error disconnecting USB device: %s", strerror(errno));
     }
     else
     {
-      ROS_WARN("Error opening USB device: %s", strerror(errno));
+      ROS_INFO("USB device reset: %s", device_path.c_str());
     }
+
+    close(fd);
   }
 }
 
