@@ -63,6 +63,8 @@ K4AROSDevice::K4AROSDevice(const NodeHandle& n, const NodeHandle& p)
   , last_capture_time_usec_(0)
   , last_imu_time_usec_(0)
   , imu_stream_end_of_file_(false)
+  , initialized_(false)
+  , running_(false)
 {
   // Collect ROS parameters from the param server or from the command line
 #define LIST_ENTRY(param_variable, param_help_string, param_type, param_default_val)                                   \
@@ -119,7 +121,6 @@ K4AROSDevice::K4AROSDevice(const NodeHandle& n, const NodeHandle& p)
       if (params_.color_format == "jpeg" && record_config.color_format != K4A_IMAGE_FORMAT_COLOR_MJPG)
       {
         ROS_FATAL("Converting color images to K4A_IMAGE_FORMAT_COLOR_MJPG is not supported.");
-        ros::requestShutdown();
         return;
       }
       if (params_.color_format == "bgra" && record_config.color_format != K4A_IMAGE_FORMAT_COLOR_BGRA32)
@@ -229,7 +230,7 @@ K4AROSDevice::K4AROSDevice(const NodeHandle& n, const NodeHandle& p)
     ROS_INFO("Depth Sensor Version: %d.%d.%d", version_info.depth_sensor.major, version_info.depth_sensor.minor,
              version_info.depth_sensor.iteration);
   }
-
+  initialized_ = true;
   // Register our topics
   std::string rgb_ns;
   private_node_.param<std::string>("rgb", rgb_ns, "rgb");
@@ -337,25 +338,33 @@ K4AROSDevice::K4AROSDevice(const NodeHandle& n, const NodeHandle& p)
 K4AROSDevice::~K4AROSDevice()
 {
   // Start tearing down the publisher threads
-  running_ = false;
 
 #if defined(K4A_BODY_TRACKING)
-  // Join the publisher thread
-  ROS_INFO("Joining body publisher thread");
-  body_publisher_thread_.join();
-  ROS_INFO("Body publisher thread joined");
+  if (body_publisher_thread_.joinable())
+  {
+    // Join the publisher thread
+    ROS_INFO("Joining body publisher thread");
+    body_publisher_thread_.join();
+    ROS_INFO("Body publisher thread joined");
+  }
 #endif
+  if (frame_publisher_thread_.joinable())
+  {
+    // Join the publisher thread
+    ROS_INFO("Joining camera publisher thread");
+    frame_publisher_thread_.join();
+    ROS_INFO("Camera publisher thread joined");
+  }
 
-  // Join the publisher thread
-  ROS_INFO("Joining camera publisher thread");
-  frame_publisher_thread_.join();
-  ROS_INFO("Camera publisher thread joined");
+  if (imu_publisher_thread_.joinable())
+  {
+    // Join the publisher thread
+    ROS_INFO("Joining IMU publisher thread");
+    imu_publisher_thread_.join();
+    ROS_INFO("IMU publisher thread joined");
+  }
 
-  // Join the publisher thread
-  ROS_INFO("Joining IMU publisher thread");
-  imu_publisher_thread_.join();
-  ROS_INFO("IMU publisher thread joined");
-
+  // Stop the K4A device
   stopCameras();
   stopImu();
 
@@ -375,7 +384,10 @@ K4AROSDevice::~K4AROSDevice()
 k4a_result_t K4AROSDevice::startCameras()
 {
   k4a_device_configuration_t k4a_configuration = K4A_DEVICE_CONFIG_INIT_DISABLE_ALL;
-
+  if (!initialized_)
+  {
+    return K4A_RESULT_FAILED;
+  }
   if (k4a_device_)
   {
     k4a_result_t result = params_.GetDeviceConfig(&k4a_configuration);
@@ -408,7 +420,15 @@ k4a_result_t K4AROSDevice::startCameras()
   if (k4a_device_)
   {
     ROS_INFO_STREAM("STARTING CAMERAS");
-    k4a_device_.start_cameras(&k4a_configuration);
+    try
+    {
+      k4a_device_.start_cameras(&k4a_configuration);
+    }
+    catch (k4a::error e)
+    {
+      ROS_ERROR_STREAM("Error starting cameras: " << e.what());
+      return K4A_RESULT_FAILED;
+    }
   }
 
   // Cannot assume the device timestamp begins increasing upon starting the cameras.
@@ -431,6 +451,10 @@ k4a_result_t K4AROSDevice::startCameras()
 
 k4a_result_t K4AROSDevice::startImu()
 {
+  if (!initialized_)
+  {
+    return K4A_RESULT_FAILED;
+  }
   if (k4a_device_)
   {
     ROS_INFO_STREAM("STARTING IMU");
@@ -445,6 +469,10 @@ k4a_result_t K4AROSDevice::startImu()
 
 void K4AROSDevice::stopCameras()
 {
+  if (!initialized_)
+  {
+    return;
+  }
   if (k4a_device_)
   {
     // Stop the K4A SDK
@@ -456,6 +484,10 @@ void K4AROSDevice::stopCameras()
 
 void K4AROSDevice::stopImu()
 {
+  if (!initialized_)
+  {
+    return;
+  }
   if (k4a_device_)
   {
     k4a_device_.stop_imu();
@@ -567,7 +599,6 @@ k4a_result_t K4AROSDevice::getRbgFrame(const k4a::capture& capture, sensor_msgs:
                                        bool rectified = false)
 {
   k4a::image k4a_bgra_frame = capture.get_color_image();
-
   if (!k4a_bgra_frame)
   {
     ROS_ERROR("Cannot render BGRA frame: no frame");
@@ -955,7 +986,7 @@ void K4AROSDevice::framePublisherThread()
       if (!k4a_device_.get_capture(&capture, waitTime))
       {
         ROS_FATAL("Failed to poll cameras: node cannot continue.");
-        ros::requestShutdown();
+        running_ = false;
         return;
       }
       else
@@ -991,7 +1022,7 @@ void K4AROSDevice::framePublisherThread()
         else
         {
           ROS_INFO("Recording reached end of file. node cannot continue.");
-          ros::requestShutdown();
+          running_ = false;
           return;
         }
       }
@@ -1023,7 +1054,8 @@ void K4AROSDevice::framePublisherThread()
         if (result != K4A_RESULT_SUCCEEDED)
         {
           ROS_ERROR_STREAM("Failed to get raw IR frame");
-          ros::shutdown();
+          // ros::shutdown();
+          running_ = false;
           return;
         }
         else if (result == K4A_RESULT_SUCCEEDED)
@@ -1060,7 +1092,8 @@ void K4AROSDevice::framePublisherThread()
           if (result != K4A_RESULT_SUCCEEDED)
           {
             ROS_ERROR_STREAM("Failed to get raw depth frame");
-            ros::shutdown();
+            // ros::shutdown();
+            running_ = false;
             return;
           }
           else if (result == K4A_RESULT_SUCCEEDED)
@@ -1091,7 +1124,8 @@ void K4AROSDevice::framePublisherThread()
           if (result != K4A_RESULT_SUCCEEDED)
           {
             ROS_ERROR_STREAM("Failed to get rectifed depth frame");
-            ros::shutdown();
+            running_ = false;
+            // ros::shutdown();
             return;
           }
           else if (result == K4A_RESULT_SUCCEEDED)
@@ -1381,8 +1415,22 @@ void K4AROSDevice::imuPublisherThread()
       bool read = false;
       do
       {
-        read = k4a_device_.get_imu_sample(&sample, std::chrono::milliseconds(0));
-
+        if (!k4a_device_ || !running_)
+        {
+          ROS_FATAL("Failed to poll IMU: node cannot continue.");
+          running_ = false;
+          return;
+        }
+        try
+        {
+          read = k4a_device_.get_imu_sample(&sample, std::chrono::milliseconds(0));
+        }
+        catch (const std::exception& e)
+        {
+          ROS_ERROR_STREAM("Failed to poll IMU: " << e.what());
+          running_ = false;
+          return;
+        }
         if (read)
         {
           if (throttling)
@@ -1497,6 +1545,11 @@ std::chrono::microseconds K4AROSDevice::getCaptureTimestamp(const k4a::capture& 
   }
 
   return std::chrono::microseconds::zero();
+}
+
+bool K4AROSDevice::isRunning()
+{
+  return running_;
 }
 
 // Converts a k4a *device* timestamp to a ros::Time object
