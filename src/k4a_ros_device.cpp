@@ -1732,13 +1732,19 @@ std::vector<std::string> K4AROSDevice::getKinectPorts()
     {
       std::string vendor_hex;
       ss >> vendor_hex;
-      current_id_vendor = vendor_hex;
+      if (vendor_hex.size() > 2 && vendor_hex.substr(0, 2) == "0x")
+      {
+        current_id_vendor = vendor_hex.substr(2);  // Remove "0x"
+      }
     }
     else if (token == "idProduct")
     {
       std::string product_hex;
       ss >> product_hex;
-      current_id_product = product_hex;
+      if (product_hex.size() > 2 && product_hex.substr(0, 2) == "0x")
+      {
+        current_id_product = product_hex.substr(2);  // Remove "0x"
+      }
     }
     else if (token == "iProduct" && line_str.find("Azure Kinect") != std::string::npos)
     {
