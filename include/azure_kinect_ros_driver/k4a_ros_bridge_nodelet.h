@@ -6,7 +6,15 @@
 
 // System headers
 //
-
+#include <cstdlib>
+#include <cstdio>
+#include <cstring>
+#include <cerrno>
+#include <fcntl.h>
+#include <unistd.h>
+#include <dirent.h>
+#include <linux/usbdevice_fs.h>
+#include <sys/ioctl.h>
 // Library headers
 //
 #include <ros/ros.h>
@@ -28,6 +36,8 @@ public:
 
 private:
   std::unique_ptr<K4AROSDevice> k4a_device;
+  std::vector<std::string> getKinectPorts();
+  void resetPorts(const std::vector<std::string>& ports);
 };
 }  // namespace Azure_Kinect_ROS_Driver
 

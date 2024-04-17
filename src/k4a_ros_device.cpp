@@ -211,6 +211,15 @@ K4AROSDevice::K4AROSDevice(const NodeHandle& n, const NodeHandle& p)
     if (!k4a_device_)
     {
       ROS_ERROR("Failed to open a K4A device. Cannot continue.");
+      // disconnect device
+      try
+      {
+        k4a_device_.close();
+      }
+      catch (exception)
+      {
+        ROS_ERROR_STREAM("Failed to close K4A device");
+      }
       return;
     }
 
@@ -327,15 +336,15 @@ K4AROSDevice::K4AROSDevice(const NodeHandle& n, const NodeHandle& p)
       std::make_shared<camera_info_manager::CameraInfoManager>(node_ir_, calibration_file_name_ir, calibration_url_ir);
 
 #if defined(K4A_BODY_TRACKING)
-  if (params_.body_tracking_enabled) {    
+  if (params_.body_tracking_enabled)
+  {
     tfListener = new tf2_ros::TransformListener(tfBuffer);
     body_marker_publisher_ = node_.advertise<MarkerArray>("body_tracking_data", 1);
 
     body_index_map_publisher_ = image_transport_.advertise("body_index_map/image_raw", 1);
 
     image_subscriber_ = image_transport_.subscribeCamera("rgb/image_raw", 1, &K4AROSDevice::imageCallback, this);
-    image_tf_publisher_ = image_transport_.advertise("image_tf", 1); 
-  
+    image_tf_publisher_ = image_transport_.advertise("image_tf", 1);
   }
 #endif
 }
@@ -352,6 +361,7 @@ K4AROSDevice::~K4AROSDevice()
     body_publisher_thread_.join();
     ROS_INFO("Body publisher thread joined");
   }
+  body_publisher_thread_.detach();
 #endif
   if (frame_publisher_thread_.joinable())
   {
@@ -360,6 +370,7 @@ K4AROSDevice::~K4AROSDevice()
     frame_publisher_thread_.join();
     ROS_INFO("Camera publisher thread joined");
   }
+  frame_publisher_thread_.detach();
 
   if (imu_publisher_thread_.joinable())
   {
@@ -368,10 +379,7 @@ K4AROSDevice::~K4AROSDevice()
     imu_publisher_thread_.join();
     ROS_INFO("IMU publisher thread joined");
   }
-
-  // Stop the K4A device
-  stopCameras();
-  stopImu();
+  imu_publisher_thread_.detach();
 
   if (k4a_playback_handle_)
   {
@@ -384,6 +392,14 @@ K4AROSDevice::~K4AROSDevice()
     k4abt_tracker_.shutdown();
   }
 #endif
+
+  // Stop the K4A device
+  if (k4a_device_)
+  {
+    k4a_device_.close();
+  }
+  stopCameras();
+  stopImu();
 }
 
 k4a_result_t K4AROSDevice::startCameras()
@@ -474,28 +490,37 @@ k4a_result_t K4AROSDevice::startImu()
 
 void K4AROSDevice::stopCameras()
 {
-  if (!initialized_)
-  {
-    return;
-  }
   if (k4a_device_)
   {
     // Stop the K4A SDK
-    ROS_INFO("Stopping K4A device");
-    k4a_device_.stop_cameras();
-    ROS_INFO("K4A device stopped");
+    ROS_INFO("Stopping K4A camera");
+    try
+    {
+      k4a_device_.stop_cameras();
+    }
+    catch (k4a::error e)
+    {
+      ROS_ERROR_STREAM("Error stopping cameras: " << e.what());
+    }
+    ROS_INFO("K4A camera stopped");
   }
 }
 
 void K4AROSDevice::stopImu()
 {
-  if (!initialized_)
-  {
-    return;
-  }
   if (k4a_device_)
   {
-    k4a_device_.stop_imu();
+    // Stop the K4A SDK
+    ROS_INFO("Stopping K4A IMU");
+    try
+    {
+      k4a_device_.stop_imu();
+    }
+    catch (k4a::error e)
+    {
+      ROS_ERROR_STREAM("Error stopping IMU: " << e.what());
+    }
+    ROS_INFO("K4A IMU stopped");
   }
 }
 
@@ -848,7 +873,8 @@ k4a_result_t K4AROSDevice::getImuFrame(const k4a_imu_sample_t& sample, sensor_ms
 }
 
 #if defined(K4A_BODY_TRACKING)
-k4a_result_t K4AROSDevice::getBodyMarker(const k4abt_body_t& body, MarkerPtr marker_msg, geometry_msgs::TransformStamped& transform_msg, int bodyNum, int jointType,
+k4a_result_t K4AROSDevice::getBodyMarker(const k4abt_body_t& body, MarkerPtr marker_msg,
+                                         geometry_msgs::TransformStamped& transform_msg, int bodyNum, int jointType,
                                          ros::Time capture_time)
 {
   k4a_float3_t position = body.skeleton.joints[jointType].position;
@@ -884,18 +910,19 @@ k4a_result_t K4AROSDevice::getBodyMarker(const k4abt_body_t& body, MarkerPtr mar
   marker_msg->pose.orientation.y = orientation.wxyz.y;
   marker_msg->pose.orientation.z = orientation.wxyz.z;
 
- //try transforming from depth_camera_link to rgb_camera_link by waiting for the transform upto 1 second
+  // try transforming from depth_camera_link to rgb_camera_link by waiting for the transform upto 1 second
   geometry_msgs::TransformStamped depth_link_to_rgb_link;
-  try{
-    depth_link_to_rgb_link = tfBuffer.lookupTransform(rgb_frame , depth_frame,
-                              ros::Time(0));
+  try
+  {
+    depth_link_to_rgb_link = tfBuffer.lookupTransform(rgb_frame, depth_frame, ros::Time(0));
   }
-  catch (tf2::TransformException &ex) {
-    ROS_WARN("%s",ex.what());
+  catch (tf2::TransformException& ex)
+  {
+    ROS_WARN("%s", ex.what());
     ros::Duration(1.0).sleep();
   }
 
-  //Pose msg which is used to transform the pose to the rgb camera link
+  // Pose msg which is used to transform the pose to the rgb camera link
   geometry_msgs::Pose pose_msg;
   pose_msg.position.x = position.v[0] / 1000.0f;
   pose_msg.position.y = position.v[1] / 1000.0f;
@@ -904,7 +931,6 @@ k4a_result_t K4AROSDevice::getBodyMarker(const k4abt_body_t& body, MarkerPtr mar
   pose_msg.orientation.x = orientation.wxyz.x;
   pose_msg.orientation.y = orientation.wxyz.y;
   pose_msg.orientation.z = orientation.wxyz.z;
-
 
   tf2::doTransform(pose_msg, pose_msg, depth_link_to_rgb_link);
 
@@ -924,16 +950,19 @@ k4a_result_t K4AROSDevice::getBodyMarker(const k4abt_body_t& body, MarkerPtr mar
   return K4A_RESULT_SUCCEEDED;
 }
 
-//method to project a tf frame to an image
-void K4AROSDevice::imageCallback(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& info_msg)
+// method to project a tf frame to an image
+void K4AROSDevice::imageCallback(const sensor_msgs::ImageConstPtr& image_msg,
+                                 const sensor_msgs::CameraInfoConstPtr& info_msg)
 {
   cv::Mat image;
   cv_bridge::CvImagePtr input_bridge;
-  try {
+  try
+  {
     input_bridge = cv_bridge::toCvCopy(image_msg, sensor_msgs::image_encodings::BGR8);
     image = input_bridge->image;
   }
-  catch (cv_bridge::Exception& ex){
+  catch (cv_bridge::Exception& ex)
+  {
     ROS_ERROR("[draw_frames] Failed to convert image");
     return;
   }
@@ -941,29 +970,32 @@ void K4AROSDevice::imageCallback(const sensor_msgs::ImageConstPtr& image_msg, co
   cam_model_.fromCameraInfo(info_msg);
 
   std::vector<std::string> frame_ids_;
-  for(int i = 0; i < num_bodies; ++i){
-      std::transform(joint_names_.begin(), joint_names_.end(), back_inserter(frame_ids_), [&i](std::string j){return j + std::to_string(i);});    
+  for (int i = 0; i < num_bodies; ++i)
+  {
+    std::transform(joint_names_.begin(), joint_names_.end(), back_inserter(frame_ids_),
+                   [&i](std::string j) { return j + std::to_string(i); });
   }
 
-  for(const std::string frame_id: frame_ids_) {
-    
+  for (const std::string frame_id : frame_ids_)
+  {
     geometry_msgs::TransformStamped transform_msg;
-    try{
-
-      transform_msg = tfBuffer.lookupTransform(cam_model_.tfFrame(), frame_id,
-                               ros::Time(0));
+    try
+    {
+      transform_msg = tfBuffer.lookupTransform(cam_model_.tfFrame(), frame_id, ros::Time(0));
     }
-    catch (tf2::TransformException &ex) {
-      ROS_WARN("Unable to look up the transform between the frames, %s",ex.what());
+    catch (tf2::TransformException& ex)
+    {
+      ROS_WARN("Unable to look up the transform between the frames, %s", ex.what());
       return;
     }
 
-    cv::Point3d pt_cv(transform_msg.transform.translation.x, transform_msg.transform.translation.y, transform_msg.transform.translation.z);
+    cv::Point3d pt_cv(transform_msg.transform.translation.x, transform_msg.transform.translation.y,
+                      transform_msg.transform.translation.z);
     cv::Point2d uv;
     uv = cam_model_.project3dToPixel(pt_cv);
 
     static const int RADIUS = 10;
-    cv::circle(image, uv, RADIUS, CV_RGB(255,0,0), -1);
+    cv::circle(image, uv, RADIUS, CV_RGB(255, 0, 0), -1);
   }
 
   image_tf_publisher_.publish(input_bridge->toImageMsg());
@@ -1041,7 +1073,7 @@ void K4AROSDevice::framePublisherThread()
   if (ci_mngr_rgb_->isCalibrated())
   {
     rgb_raw_camera_info = depth_rect_camera_info = ci_mngr_rgb_->getCameraInfo();
-    rgb_raw_camera_info.header.frame_id = depth_rect_camera_info.header.frame_id = \
+    rgb_raw_camera_info.header.frame_id = depth_rect_camera_info.header.frame_id =
         calibration_data_.tf_prefix_ + calibration_data_.rgb_camera_frame_;
   }
   else
@@ -1053,7 +1085,7 @@ void K4AROSDevice::framePublisherThread()
   if (ci_mngr_ir_->isCalibrated())
   {
     depth_raw_camera_info = rgb_rect_camera_info = ir_raw_camera_info = ci_mngr_ir_->getCameraInfo();
-    depth_raw_camera_info.header.frame_id = rgb_rect_camera_info.header.frame_id = ir_raw_camera_info.header.frame_id = \
+    depth_raw_camera_info.header.frame_id = rgb_rect_camera_info.header.frame_id = ir_raw_camera_info.header.frame_id =
         calibration_data_.tf_prefix_ + calibration_data_.depth_camera_frame_;
   }
   else
@@ -1415,25 +1447,25 @@ void K4AROSDevice::bodyPublisherThread()
         if (body_marker_publisher_.getNumSubscribers() > 0)
         {
           // Joint marker array
-          
+
           MarkerArrayPtr markerArrayPtr(new MarkerArray);
           std::vector<geometry_msgs::TransformStamped> transformArrary;
           num_bodies = body_frame.get_num_bodies();
           for (size_t i = 0; i < num_bodies; ++i)
           {
-            //tf2_ros::TransformListener tfListener(tfBuffer);
+            // tf2_ros::TransformListener tfListener(tfBuffer);
             k4abt_body_t body = body_frame.get_body(i);
             for (int j = 0; j < (int)K4ABT_JOINT_COUNT; ++j)
             {
               MarkerPtr markerPtr(new Marker);
-              geometry_msgs::TransformStamped transform_msg; 
+              geometry_msgs::TransformStamped transform_msg;
               getBodyMarker(body, markerPtr, transform_msg, i, j, capture_time);
               markerArrayPtr->markers.push_back(*markerPtr);
               transformArrary.push_back(std::move(transform_msg));
             }
           }
           body_marker_publisher_.publish(markerArrayPtr);
-          br.sendTransform(transformArrary); 
+          br.sendTransform(transformArrary);
         }
 
         if (body_index_map_publisher_.getNumSubscribers() > 0)
