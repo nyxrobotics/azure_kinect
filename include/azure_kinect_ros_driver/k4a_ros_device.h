@@ -187,7 +187,7 @@ private:
   std::chrono::nanoseconds device_to_realtime_offset_{ 0 };
 
   // Thread control
-  volatile bool running_;
+  volatile bool initialized_, running_;
 
   // Last capture timestamp for synchronizing playback capture and imu thread
   std::atomic_int64_t last_capture_time_usec_;

@@ -106,7 +106,7 @@
     <!-- Start the K4A sensor driver -->
     <node pkg="nodelet" type="nodelet" name="k4a_ros_bridge"
       args="load Azure_Kinect_ROS_Driver/K4AROSBridgeNodelet $(arg manager) --no-bond"
-      respawn="true" respawn_delay="1">
+      respawn="true" respawn_delay="0">
       <param name="depth_enabled" value="$(arg depth_enabled)"/>
       <param name="depth_mode" value="$(arg depth_mode)"/>
       <param name="depth_unit" value="$(arg depth_unit)"/>
