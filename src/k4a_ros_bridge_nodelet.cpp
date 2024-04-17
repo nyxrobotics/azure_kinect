@@ -49,7 +49,7 @@ void K4AROSBridgeNodelet::onInit()
   }
 
   NODELET_INFO("IMU started");
-  while (ros::ok())
+  while (ros::ok() && !ros::isShuttingDown())
   {
     if (!k4a_device->isRunning())
     {

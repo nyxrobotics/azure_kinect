@@ -40,7 +40,7 @@ int main(int argc, char** argv)
 
   if (result == K4A_RESULT_SUCCEEDED)
   {
-    while (ros::ok() && device->isRunning())
+    while (ros::ok() && !ros::isShuttingDown() && device->isRunning())
     {
       ros::spinOnce();
     }
