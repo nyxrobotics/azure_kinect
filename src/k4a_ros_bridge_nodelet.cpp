@@ -31,6 +31,9 @@ K4AROSBridgeNodelet::~K4AROSBridgeNodelet()
 void K4AROSBridgeNodelet::onInit()
 {
   NODELET_INFO("K4A ROS Nodelet Start");
+  // Get USB port number of the knect device connected
+  std::vector<std::string> usb_device_ports = getKinectPorts();
+  ROS_INFO_STREAM("-----Found " << usb_device_ports.size() << " Azure Kinect devices");
 
   k4a_device = std::unique_ptr<K4AROSDevice>(new K4AROSDevice(getNodeHandle(), getPrivateNodeHandle()));
 
@@ -49,9 +52,6 @@ void K4AROSBridgeNodelet::onInit()
   }
 
   NODELET_INFO("IMU started");
-  // Get USB port number of the knect device connected
-  std::vector<std::string> usb_device_ports = getKinectPorts();
-  ROS_INFO_STREAM("Found " << usb_device_ports.size() << " Azure Kinect devices");
 
   // Running nodelet
   while (ros::ok())
@@ -63,15 +63,18 @@ void K4AROSBridgeNodelet::onInit()
   }
   // Reset the USB port of the kinect device
   resetPorts(usb_device_ports);
-  ROS_INFO("K4A ROS Nodelet Stop");
+  ROS_INFO("-----K4A ROS Nodelet Stop");
 }
 
 std::vector<std::string> K4AROSBridgeNodelet::getKinectPorts()
 {
   std::vector<std::string> usb_device_ports;
 
+  // Set alarm for timeout
+  alarm(5);
+
   // Find USB devices containing "Azure Kinect" in their description
-  const char* usbDevicesDir = "/dev/bus/usb/";
+  const char* usbDevicesDir = "/dev/";
   DIR* dir = opendir(usbDevicesDir);
   if (!dir)
   {
@@ -81,18 +84,33 @@ std::vector<std::string> K4AROSBridgeNodelet::getKinectPorts()
   struct dirent* entry;
   while ((entry = readdir(dir)) != nullptr)
   {
-    if (entry->d_type == DT_DIR)
+    if (entry->d_type == DT_CHR)
     {
       char devicePath[256];
       snprintf(devicePath, sizeof(devicePath), "%s%s", usbDevicesDir, entry->d_name);
-      if (strstr(devicePath, "Azure Kinect") != nullptr)
+
+      // Open the device file to read the device name
+      FILE* file = fopen(devicePath, "r");
+      if (file)
       {
-        // Store the USB device port for later use
-        usb_device_ports.push_back(devicePath);
+        char deviceName[256];
+        if (fgets(deviceName, sizeof(deviceName), file) != nullptr)
+        {
+          // Check if the device name contains "Azure Kinect"
+          if (strstr(deviceName, "Azure Kinect") != nullptr)
+          {
+            // Store the USB device port for later use
+            usb_device_ports.push_back(devicePath);
+          }
+        }
+        fclose(file);
       }
     }
   }
   closedir(dir);
+
+  // Cancel alarm
+  alarm(0);
 
   return usb_device_ports;
 }
