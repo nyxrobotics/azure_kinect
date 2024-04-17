@@ -1054,7 +1054,6 @@ void K4AROSDevice::framePublisherThread()
         if (result != K4A_RESULT_SUCCEEDED)
         {
           ROS_ERROR_STREAM("Failed to get raw IR frame");
-          // ros::shutdown();
           running_ = false;
           return;
         }
@@ -1092,7 +1091,6 @@ void K4AROSDevice::framePublisherThread()
           if (result != K4A_RESULT_SUCCEEDED)
           {
             ROS_ERROR_STREAM("Failed to get raw depth frame");
-            // ros::shutdown();
             running_ = false;
             return;
           }
@@ -1125,7 +1123,6 @@ void K4AROSDevice::framePublisherThread()
           {
             ROS_ERROR_STREAM("Failed to get rectifed depth frame");
             running_ = false;
-            // ros::shutdown();
             return;
           }
           else if (result == K4A_RESULT_SUCCEEDED)
@@ -1150,7 +1147,7 @@ void K4AROSDevice::framePublisherThread()
           if (!k4abt_tracker_.enqueue_capture(capture))
           {
             ROS_ERROR("Error! Add capture to tracker process queue failed!");
-            ros::shutdown();
+            running_ = false;
             return;
           }
           else
@@ -1176,7 +1173,7 @@ void K4AROSDevice::framePublisherThread()
           if (result != K4A_RESULT_SUCCEEDED)
           {
             ROS_ERROR_STREAM("Failed to get Jpeg frame");
-            ros::shutdown();
+            running_ = false;
             return;
           }
 
@@ -1201,7 +1198,7 @@ void K4AROSDevice::framePublisherThread()
           if (result != K4A_RESULT_SUCCEEDED)
           {
             ROS_ERROR_STREAM("Failed to get RGB frame");
-            ros::shutdown();
+            running_ = false;
             return;
           }
 
@@ -1229,7 +1226,7 @@ void K4AROSDevice::framePublisherThread()
           if (result != K4A_RESULT_SUCCEEDED)
           {
             ROS_ERROR_STREAM("Failed to get rectifed depth frame");
-            ros::shutdown();
+            running_ = false;
             return;
           }
 
@@ -1265,7 +1262,7 @@ void K4AROSDevice::framePublisherThread()
         if (result != K4A_RESULT_SUCCEEDED)
         {
           ROS_ERROR_STREAM("Failed to get RGB Point Cloud");
-          ros::shutdown();
+          running_ = false;
           return;
         }
       }
@@ -1276,7 +1273,7 @@ void K4AROSDevice::framePublisherThread()
         if (result != K4A_RESULT_SUCCEEDED)
         {
           ROS_ERROR_STREAM("Failed to get Point Cloud");
-          ros::shutdown();
+          running_ = false;
           return;
         }
       }
@@ -1313,7 +1310,7 @@ void K4AROSDevice::bodyPublisherThread()
       if (body_frame == nullptr)
       {
         ROS_ERROR_STREAM("Pop body frame result failed!");
-        ros::shutdown();
+        running_ = false;
         return;
       }
       else
@@ -1347,7 +1344,7 @@ void K4AROSDevice::bodyPublisherThread()
           if (result != K4A_RESULT_SUCCEEDED)
           {
             ROS_ERROR_STREAM("Failed to get body index map");
-            ros::shutdown();
+            running_ = false;
             return;
           }
           else if (result == K4A_RESULT_SUCCEEDED)
