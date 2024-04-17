@@ -1695,6 +1695,7 @@ bool K4AROSDevice::isRunning()
 std::vector<std::string> K4AROSDevice::getKinectPorts()
 {
   std::vector<std::string> device_paths;
+  std::vector<std::string> bus;
   std::vector<std::string> id_vendor;
   std::vector<std::string> id_product;
 
@@ -1710,6 +1711,7 @@ std::vector<std::string> K4AROSDevice::getKinectPorts()
     return device_paths;
   }
 
+  std::string current_bus;
   std::string current_id_vendor;
   std::string current_id_product;
   char line[1024];
@@ -1719,28 +1721,29 @@ std::vector<std::string> K4AROSDevice::getKinectPorts()
     std::stringstream ss(line_str);
     std::string token;
     ss >> token;
-    if (token == "idVendor")
+    if (token == "Bus")
+    {
+      std::string bus_hex;
+      ss >> bus_hex;
+      current_bus = bus_hex;
+      bus.push_back(current_bus);
+    }
+    else if (token == "idVendor")
     {
       std::string vendor_hex;
       ss >> vendor_hex;
-      if (vendor_hex.size() > 2 && vendor_hex.substr(0, 2) == "0x")
-      {
-        current_id_vendor = vendor_hex;
-      }
+      current_id_vendor = vendor_hex;
     }
     else if (token == "idProduct")
     {
       std::string product_hex;
       ss >> product_hex;
-      if (product_hex.size() > 2 && product_hex.substr(0, 2) == "0x")
-      {
-        current_id_product = product_hex;
-      }
+      current_id_product = product_hex;
     }
     else if (token == "iProduct" && line_str.find("Azure Kinect") != std::string::npos)
     {
-      ROS_INFO("Azure Kinect device found with idVendor: %s and idProduct: %s", current_id_vendor.c_str(),
-               current_id_product.c_str());
+      ROS_INFO("Azure Kinect device found with Bus: %s, idVendor: %s, idProduct: %s", current_bus.c_str(),
+               current_id_vendor.c_str(), current_id_product.c_str());
       // Check if idVendor and idProduct were found
       if (!current_id_vendor.empty() && !current_id_product.empty())
       {
@@ -1776,28 +1779,29 @@ std::vector<std::string> K4AROSDevice::getKinectPorts()
   }
 
   // Find the ports of Azure Kinect devices
-  std::string current_bus;
   std::string current_port;
   while (fgets(line, sizeof(line), lsusbTPipe) != nullptr)
   {
     for (size_t i = 0; i < id_vendor.size(); ++i)
     {
+      const std::string& current_bus = bus[i];
       const std::string& current_id_vendor = id_vendor[i];
       const std::string& current_id_product = id_product[i];
       std::string search_string = "ID " + current_id_vendor + ":" + current_id_product;
-      // Check if this line contains the idVendor and idProduct of an Azure Kinect device
-      if (strstr(line, current_id_vendor.c_str()) != nullptr && strstr(line, current_id_product.c_str()) != nullptr)
+      if (strstr(line, "Port") != nullptr)
       {
-        // Extract bus and port numbers
-        char* busPos = strchr(line, '-');
-        char* portPos = strchr(line, ':');
-        if (busPos != nullptr && portPos != nullptr)
+        // Extract port number
+        char* portPos = strchr(line, ' ');
+        if (portPos != nullptr)
         {
-          current_bus = std::string(busPos - 3, 3);
-          current_port = std::string(portPos - 2, 2);
-          device_paths.push_back("/dev/bus/usb/" + current_bus + "/" + current_port);
-          ROS_INFO("Azure Kinect device found at %s", device_paths.back().c_str());
+          current_port = std::string(portPos + 1, strcspn(portPos + 1, ","));
         }
+      }
+      else if (strstr(line, search_string.c_str()) != nullptr)
+      {
+        // Check if this line contains the idVendor and idProduct of an Azure Kinect device
+        device_paths.push_back("/dev/bus/usb/" + current_bus + "/" + current_port);
+        ROS_INFO("Azure Kinect device found at %s", device_paths.back().c_str());
       }
     }
   }
