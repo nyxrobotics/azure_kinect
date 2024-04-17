@@ -1804,19 +1804,21 @@ std::vector<std::string> K4AROSDevice::getKinectPorts()
           for (auto& part : current_port_parts)
           {
             if (!full_port_path.empty())
-              full_port_path += "/";
-            while (part.size() < 3)
-            {
-              part = "0" + part;
-            }
+              full_port_path += ".";
             full_port_path += part;
           }
-          device_paths.push_back("/dev/bus/usb/" + bus[i] + "/" + full_port_path);
-          ROS_INFO("Azure Kinect device found at %s", device_paths.back().c_str());
+          device_paths.push_back(std::to_string(stoi(bus[i])) + "-" + full_port_path);
           break;
         }
       }
     }
+  }
+  // Remove duplicates
+  std::sort(device_paths.begin(), device_paths.end());
+  device_paths.erase(std::unique(device_paths.begin(), device_paths.end()), device_paths.end());
+  for (const auto& device_path : device_paths)
+  {
+    ROS_INFO("Azure Kinect device found at %s", device_path.c_str());
   }
   pclose(lsusbTPipe);
   // Cancel alarm
@@ -1829,25 +1831,18 @@ void K4AROSDevice::resetPorts(const std::vector<std::string>& ports)
   // Reset USB devices containing "Azure Kinect" in their description
   for (const auto& device_path : ports)
   {
-    // Open device
-    int fd = open(device_path.c_str(), O_WRONLY);
-    if (fd == -1)
-    {
-      ROS_WARN("Error opening USB device: %s", strerror(errno));
-      continue;
-    }
-
     // Unbind device
-    if (ioctl(fd, USBDEVFS_DISCONNECT) == -1)
+    std::string unbind_command = "echo -n " + device_path + " | tee /sys/bus/usb/drivers/usb/unbind";
+    if (system(unbind_command.c_str()) != 0)
     {
-      ROS_WARN("Error disconnecting USB device: %s", strerror(errno));
+      ROS_ERROR("Failed to unbind device %s", device_path.c_str());
     }
-    else
+    // Bind device
+    std::string bind_command = "echo -n " + device_path + " | tee /sys/bus/usb/drivers/usb/bind";
+    if (system(bind_command.c_str()) != 0)
     {
-      ROS_INFO("USB device reset: %s", device_path.c_str());
+      ROS_ERROR("Failed to bind device %s", device_path.c_str());
     }
-
-    close(fd);
   }
 }
 
