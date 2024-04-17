@@ -28,6 +28,15 @@ K4AROSBridgeNodelet::~K4AROSBridgeNodelet()
   k4a_device.reset();
 }
 
+void K4AROSBridgeNodelet::watchdogTimerCallback(const ros::TimerEvent&)
+{
+  if (!k4a_device->isRunning())
+  {
+    NODELET_ERROR("K4A device is not running. Shutting down nodelet.");
+    ros::shutdown();
+  }
+}
+
 void K4AROSBridgeNodelet::onInit()
 {
   NODELET_INFO("K4A ROS Nodelet Start");
@@ -49,12 +58,9 @@ void K4AROSBridgeNodelet::onInit()
   }
 
   NODELET_INFO("IMU started");
-  while (ros::ok() && !ros::isShuttingDown())
-  {
-    if (!k4a_device->isRunning())
-    {
-      throw nodelet::Exception("K4A Device disconnected");
-    }
-  }
+
+  timer_ = getNodeHandle().createTimer(ros::Duration(1.0), &K4AROSBridgeNodelet::watchdogTimerCallback, this);
+
+  NODELET_INFO("Watchdog timer started");
 }
 }  // namespace Azure_Kinect_ROS_Driver

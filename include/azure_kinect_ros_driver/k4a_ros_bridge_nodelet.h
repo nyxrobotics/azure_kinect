@@ -25,9 +25,11 @@ public:
   ~K4AROSBridgeNodelet();
 
   virtual void onInit();
+  void watchdogTimerCallback(const ros::TimerEvent&);
 
 private:
   std::unique_ptr<K4AROSDevice> k4a_device;
+  ros::Timer timer_;
 };
 }  // namespace Azure_Kinect_ROS_Driver
 
