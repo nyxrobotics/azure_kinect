@@ -139,6 +139,7 @@ k4a_result_t getBodyMarker(const k4abt_body_t& body, visualization_msgs::MarkerP
   ros::Publisher rgb_rect_camerainfo_publisher_;
 
   image_transport::Publisher ir_raw_publisher_;
+  image_transport::Publisher ir_bgr_publisher_;
   ros::Publisher ir_raw_camerainfo_publisher_;
 
   ros::Publisher imu_orientation_publisher_;

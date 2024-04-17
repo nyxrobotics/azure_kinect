@@ -235,22 +235,28 @@ K4AROSDevice::K4AROSDevice(const NodeHandle& n, const NodeHandle& p)
   }
 
   // Register our topics
+  std::string rgb_ns;
+  private_node_.param<std::string>("rgb", rgb_ns, "rgb");
   if (params_.color_format == "jpeg")
   {
     // JPEG images are directly published on 'rgb/image_raw/compressed' so that
     // others can subscribe to 'rgb/image_raw' with compressed_image_transport.
     // This technique is described in:
     // http://wiki.ros.org/compressed_image_transport#Publishing_compressed_images_directly
-    rgb_jpeg_publisher_ = node_.advertise<CompressedImage>(node_.resolveName("rgb/image_raw") + "/compressed", 1);
+    rgb_jpeg_publisher_ = node_.advertise<CompressedImage>(node_.resolveName(rgb_ns + "/image_raw") + "/compressed", 1);
   }
   else if (params_.color_format == "bgra")
   {
-    rgb_raw_publisher_ = image_transport_.advertise("rgb/image_raw", 1);
+    rgb_raw_publisher_ = image_transport_.advertise(rgb_ns + "/image_raw", 1);
   }
-  rgb_raw_camerainfo_publisher_ = node_.advertise<CameraInfo>("rgb/camera_info", 1);
+  rgb_raw_camerainfo_publisher_ = node_.advertise<CameraInfo>(rgb_ns + "/camera_info", 1);
 
-  static const std::string depth_raw_topic = "depth/image_raw";
-  static const std::string depth_rect_topic = "depth_to_rgb/image_raw";
+  std::string depth_ns;
+  private_node_.param<std::string>("depth", depth_ns, "depth");
+  static const std::string depth_raw_topic = depth_ns + "/image_raw";
+  std::string depth_registered_ns;
+  private_node_.param<std::string>("depth_registered", depth_registered_ns, "depth_to_rgb");
+  static const std::string depth_rect_topic = depth_registered_ns + "/image_raw";
   if (params_.depth_unit == sensor_msgs::image_encodings::TYPE_16UC1) {
     // set lowest PNG compression for maximum FPS
     node_.setParam(node_.resolveName(depth_raw_topic) + "/compressed/format", "png");
@@ -260,20 +266,29 @@ K4AROSDevice::K4AROSDevice(const NodeHandle& n, const NodeHandle& p)
   }
 
   depth_raw_publisher_ = image_transport_.advertise(depth_raw_topic, 1);
-  depth_raw_camerainfo_publisher_ = node_.advertise<CameraInfo>("depth/camera_info", 1);
+  depth_raw_camerainfo_publisher_ = node_.advertise<CameraInfo>(depth_ns + "/camera_info", 1);
 
-  depth_rect_publisher_ = image_transport_.advertise(depth_rect_topic, 1);
-  depth_rect_camerainfo_publisher_ = node_.advertise<CameraInfo>("depth_to_rgb/camera_info", 1);
+  if (params_.register_enabled){
+    depth_rect_publisher_ = image_transport_.advertise(depth_rect_topic, 1);
+    depth_rect_camerainfo_publisher_ = node_.advertise<CameraInfo>(depth_registered_ns + "/camera_info", 1);
 
-  rgb_rect_publisher_ = image_transport_.advertise("rgb_to_depth/image_raw", 1);
-  rgb_rect_camerainfo_publisher_ = node_.advertise<CameraInfo>("rgb_to_depth/camera_info", 1);
+    std::string rgb_registered_ns;
+    private_node_.param<std::string>("rgb_registered", rgb_registered_ns, "rgb_to_depth");
+    rgb_rect_publisher_ = image_transport_.advertise(rgb_registered_ns + "/image_raw", 1);
+    rgb_rect_camerainfo_publisher_ = node_.advertise<CameraInfo>(rgb_registered_ns + "/camera_info", 1);
+  }
 
-  ir_raw_publisher_ = image_transport_.advertise("ir/image_raw", 1);
-  ir_raw_camerainfo_publisher_ = node_.advertise<CameraInfo>("ir/camera_info", 1);
+  if (params_.ir_enabled){
+    std::string ir_ns;
+    private_node_.param<std::string>("ir", ir_ns, "ir");
+    ir_raw_publisher_ = image_transport_.advertise(ir_ns + "/image_raw", 1);
+    ir_bgr_publisher_ = image_transport_.advertise(ir_ns + "/image_bgr", 1);
+    ir_raw_camerainfo_publisher_ = node_.advertise<CameraInfo>(ir_ns + "/camera_info", 1);
+  }
 
   imu_orientation_publisher_ = node_.advertise<Imu>("imu", 200);
 
-  if (params_.point_cloud || params_.rgb_point_cloud) {
+  if (params_.register_enabled && (params_.point_cloud || params_.rgb_point_cloud)) {
     pointcloud_publisher_ = node_.advertise<PointCloud2>("points2", 1);
   }
 
@@ -1074,7 +1089,8 @@ void K4AROSDevice::framePublisherThread()
       // Only do compute if we have subscribers
       // Only create ir frame when we are using a device or we have an ir image.
       // Recordings may not have synchronized captures. For unsynchronized captures without ir image skip ir frame.
-      if ((ir_raw_publisher_.getNumSubscribers() > 0 || ir_raw_camerainfo_publisher_.getNumSubscribers() > 0) &&
+      if (params_.ir_enabled && (ir_raw_publisher_.getNumSubscribers() > 0 || ir_bgr_publisher_.getNumSubscribers() > 0 ||
+           ir_raw_camerainfo_publisher_.getNumSubscribers() > 0) &&
           (k4a_device_ || capture.get_ir_image() != nullptr))
       {
         // IR images are available in all depth modes
@@ -1095,8 +1111,13 @@ void K4AROSDevice::framePublisherThread()
           ir_raw_frame->header.stamp = capture_time;
           ir_raw_frame->header.frame_id = calibration_data_.tf_prefix_ + calibration_data_.depth_camera_frame_;
 
-          ir_raw_publisher_.publish(ir_raw_frame);
           ir_raw_camerainfo_publisher_.publish(ir_raw_camera_info);
+          if (ir_raw_publisher_.getNumSubscribers() > 0)
+            ir_raw_publisher_.publish(ir_raw_frame);
+          if (ir_bgr_publisher_.getNumSubscribers() > 0){
+            auto ir_bgr8 = cv_bridge::toCvCopy(ir_raw_frame, sensor_msgs::image_encodings::BGR8)->toImageMsg();
+            ir_bgr_publisher_.publish(ir_bgr8);
+          }
         }
       }
 
@@ -1135,7 +1156,7 @@ void K4AROSDevice::framePublisherThread()
         // Only create rect depth frame when we are using a device or we have an depth image.
         // Recordings may not have synchronized captures. For unsynchronized captures without depth image skip rect
         // depth frame.
-        if (params_.color_enabled &&
+        if (params_.color_enabled && params_.register_enabled &&
             (depth_rect_publisher_.getNumSubscribers() > 0 ||
              depth_rect_camerainfo_publisher_.getNumSubscribers() > 0) &&
             (k4a_device_ || capture.get_depth_image() != nullptr))
@@ -1239,7 +1260,7 @@ void K4AROSDevice::framePublisherThread()
         // We can only rectify the color into the depth co-ordinates if the depth camera is enabled and processing depth
         // data Only create rgb rect frame when we are using a device or we have a synchronized image. Recordings may
         // not have synchronized captures. For unsynchronized captures image skip rgb rect frame.
-        if (params_.depth_enabled && (calibration_data_.k4a_calibration_.depth_mode != K4A_DEPTH_MODE_PASSIVE_IR) &&
+        if (params_.depth_enabled && params_.register_enabled && (calibration_data_.k4a_calibration_.depth_mode != K4A_DEPTH_MODE_PASSIVE_IR) &&
             (rgb_rect_publisher_.getNumSubscribers() > 0 || rgb_rect_camerainfo_publisher_.getNumSubscribers() > 0) &&
             (k4a_device_ || (capture.get_color_image() != nullptr && capture.get_depth_image() != nullptr)))
         {
