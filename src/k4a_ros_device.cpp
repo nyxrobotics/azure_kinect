@@ -361,10 +361,11 @@ K4AROSDevice::~K4AROSDevice()
 {
   // Start tearing down the publisher threads
   ROS_INFO("Start disconnecting from device");
-  if (!usb_device_ports_.empty())
-  {
-    resetPorts(usb_device_ports_);
-  }
+  // if (!usb_device_ports_.empty())
+  // {
+  //   resetPorts(usb_device_ports_);
+  // }
+  resetKinectDevices();
   ROS_INFO("Disconnected");
 #if defined(K4A_BODY_TRACKING)
   if (body_publisher_thread_.joinable())
@@ -1844,6 +1845,82 @@ void K4AROSDevice::resetPorts(const std::vector<std::string>& ports)
       ROS_ERROR("Failed to bind device %s", device_path.c_str());
     }
   }
+}
+
+void K4AROSDevice::resetKinectDevices()
+{
+  libusb_device** devs;
+  libusb_device_handle* dev_handle = NULL;
+  libusb_context* ctx = NULL;
+  int r;        // Return value for libusb functions
+  ssize_t cnt;  // Number of devices in the list
+
+  std::vector<std::pair<uint16_t, uint16_t>> device_ids = {
+    { 0x045e, 0x097c }, { 0x045e, 0x097d }, { 0x045e, 0x097a }, { 0x045e, 0x097e }, { 0x045e, 0x097b }
+  };
+
+  r = libusb_init(&ctx);
+  if (r < 0)
+  {
+    std::cerr << "Init Error " << r << std::endl;
+    return;
+  }
+
+  libusb_set_debug(ctx, 3);  // Set verbosity level to 3, as suggested in the documentation
+  cnt = libusb_get_device_list(ctx, &devs);
+  if (cnt < 0)
+  {
+    std::cerr << "Get Device Error" << std::endl;
+  }
+
+  for (ssize_t i = 0; i < cnt; i++)
+  {
+    libusb_device* dev = devs[i];
+    libusb_device_descriptor desc;
+    r = libusb_get_device_descriptor(dev, &desc);
+    if (r < 0)
+    {
+      std::cerr << "Failed to get device descriptor" << std::endl;
+      break;
+    }
+
+    for (auto& id_pair : device_ids)
+    {
+      if (desc.idVendor == id_pair.first && desc.idProduct == id_pair.second)
+      {
+        r = libusb_open(dev, &dev_handle);
+        if (r < 0)
+        {
+          std::cerr << "Cannot open device" << std::endl;
+          break;
+        }
+        else
+        {
+          std::cout << "Device Opened" << std::endl;
+          if (libusb_kernel_driver_active(dev_handle, 0) == 1)
+          {  // Check if kernel driver is attached
+            std::cout << "Kernel Driver Active" << std::endl;
+            if (libusb_detach_kernel_driver(dev_handle, 0) == 0)  // Detach it
+              std::cout << "Kernel Driver Detached!" << std::endl;
+          }
+          r = libusb_reset_device(dev_handle);
+          if (r < 0)
+          {
+            std::cerr << "Failed to reset device" << std::endl;
+          }
+          else
+          {
+            std::cout << "Device reset" << std::endl;
+          }
+          libusb_close(dev_handle);
+        }
+        break;  // Stop checking other IDs since device is already opened and handled
+      }
+    }
+  }
+
+  libusb_free_device_list(devs, 1);
+  libusb_exit(ctx);
 }
 
 // Converts a k4a *device* timestamp to a ros::Time object

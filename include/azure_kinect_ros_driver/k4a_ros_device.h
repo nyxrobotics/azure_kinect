@@ -19,6 +19,7 @@
 #include <dirent.h>
 #include <linux/usbdevice_fs.h>
 #include <sys/ioctl.h>
+#include <libusb-1.0/libusb.h>
 // Library headers
 //
 #include <image_transport/image_transport.h>
@@ -80,6 +81,7 @@ public:
   bool isRunning();
   std::vector<std::string> getKinectPorts();
   void resetPorts(const std::vector<std::string>& ports);
+  void resetKinectDevices();
 
 #if defined(K4A_BODY_TRACKING)
   k4a_result_t getBodyMarker(const k4abt_body_t& body, visualization_msgs::MarkerPtr marker_msg,
