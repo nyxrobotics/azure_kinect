@@ -30,20 +30,15 @@ using namespace image_transport;
 using namespace std;
 
 static const std::unordered_map<k4a_color_resolution_t, std::string> color_mode_string = {
-  {K4A_COLOR_RESOLUTION_720P, "720P"},
-  {K4A_COLOR_RESOLUTION_1080P, "1080P"},
-  {K4A_COLOR_RESOLUTION_1440P, "1440P"},
-  {K4A_COLOR_RESOLUTION_1536P, "1536P"},
-  {K4A_COLOR_RESOLUTION_2160P, "2160P"},
-  {K4A_COLOR_RESOLUTION_3072P, "3072P"},
+  { K4A_COLOR_RESOLUTION_720P, "720P" },   { K4A_COLOR_RESOLUTION_1080P, "1080P" },
+  { K4A_COLOR_RESOLUTION_1440P, "1440P" }, { K4A_COLOR_RESOLUTION_1536P, "1536P" },
+  { K4A_COLOR_RESOLUTION_2160P, "2160P" }, { K4A_COLOR_RESOLUTION_3072P, "3072P" },
 };
 
 static const std::unordered_map<k4a_depth_mode_t, std::string> depth_mode_string = {
-  {K4A_DEPTH_MODE_NFOV_2X2BINNED, "NFOV_2X2BINNED"},
-  {K4A_DEPTH_MODE_NFOV_UNBINNED, "NFOV_UNBINNED"},
-  {K4A_DEPTH_MODE_WFOV_2X2BINNED, "WFOV_2X2BINNED"},
-  {K4A_DEPTH_MODE_WFOV_UNBINNED, "WFOV_UNBINNED"},
-  {K4A_DEPTH_MODE_PASSIVE_IR, "PASSIVE_IR"},
+  { K4A_DEPTH_MODE_NFOV_2X2BINNED, "NFOV_2X2BINNED" }, { K4A_DEPTH_MODE_NFOV_UNBINNED, "NFOV_UNBINNED" },
+  { K4A_DEPTH_MODE_WFOV_2X2BINNED, "WFOV_2X2BINNED" }, { K4A_DEPTH_MODE_WFOV_UNBINNED, "WFOV_UNBINNED" },
+  { K4A_DEPTH_MODE_PASSIVE_IR, "PASSIVE_IR" },
 };
 
 #if defined(K4A_BODY_TRACKING)
@@ -51,25 +46,26 @@ using namespace visualization_msgs;
 #endif
 
 K4AROSDevice::K4AROSDevice(const NodeHandle& n, const NodeHandle& p)
-  : k4a_device_(nullptr),
-    k4a_playback_handle_(nullptr),
+  : k4a_device_(nullptr)
+  , k4a_playback_handle_(nullptr)
+  ,
 // clang-format off
 #if defined(K4A_BODY_TRACKING)
     k4abt_tracker_(nullptr),
     k4abt_tracker_queue_size_(0),
 #endif
-    // clang-format on
-    node_(n),
-    private_node_(p),
-    node_rgb_("rgb"),
-    node_ir_("ir"),
-    image_transport_(n),
-    last_capture_time_usec_(0),
-    last_imu_time_usec_(0),
-    imu_stream_end_of_file_(false)
+  // clang-format on
+  node_(n)
+  , private_node_(p)
+  , node_rgb_("rgb")
+  , node_ir_("ir")
+  , image_transport_(n)
+  , last_capture_time_usec_(0)
+  , last_imu_time_usec_(0)
+  , imu_stream_end_of_file_(false)
 {
   // Collect ROS parameters from the param server or from the command line
-#define LIST_ENTRY(param_variable, param_help_string, param_type, param_default_val) \
+#define LIST_ENTRY(param_variable, param_help_string, param_type, param_default_val)                                   \
   private_node_.param(#param_variable, params_.param_variable, param_default_val);
   ROS_PARAM_LIST
 #undef LIST_ENTRY
@@ -123,7 +119,8 @@ K4AROSDevice::K4AROSDevice(const NodeHandle& n, const NodeHandle& p)
       if (params_.color_format == "jpeg" && record_config.color_format != K4A_IMAGE_FORMAT_COLOR_MJPG)
       {
         ROS_FATAL("Converting color images to K4A_IMAGE_FORMAT_COLOR_MJPG is not supported.");
-        ros::requestShutdown();
+        // ros::requestShutdown();
+        running_ = false;
         return;
       }
       if (params_.color_format == "bgra" && record_config.color_format != K4A_IMAGE_FORMAT_COLOR_BGRA32)
@@ -257,7 +254,8 @@ K4AROSDevice::K4AROSDevice(const NodeHandle& n, const NodeHandle& p)
   std::string depth_registered_ns;
   private_node_.param<std::string>("depth_registered", depth_registered_ns, "depth_to_rgb");
   static const std::string depth_rect_topic = depth_registered_ns + "/image_raw";
-  if (params_.depth_unit == sensor_msgs::image_encodings::TYPE_16UC1) {
+  if (params_.depth_unit == sensor_msgs::image_encodings::TYPE_16UC1)
+  {
     // set lowest PNG compression for maximum FPS
     node_.setParam(node_.resolveName(depth_raw_topic) + "/compressed/format", "png");
     node_.setParam(node_.resolveName(depth_raw_topic) + "/compressed/png_level", 1);
@@ -268,7 +266,8 @@ K4AROSDevice::K4AROSDevice(const NodeHandle& n, const NodeHandle& p)
   depth_raw_publisher_ = image_transport_.advertise(depth_raw_topic, 1);
   depth_raw_camerainfo_publisher_ = node_.advertise<CameraInfo>(depth_ns + "/camera_info", 1);
 
-  if (params_.register_enabled){
+  if (params_.register_enabled)
+  {
     depth_rect_publisher_ = image_transport_.advertise(depth_rect_topic, 1);
     depth_rect_camerainfo_publisher_ = node_.advertise<CameraInfo>(depth_registered_ns + "/camera_info", 1);
 
@@ -278,7 +277,8 @@ K4AROSDevice::K4AROSDevice(const NodeHandle& n, const NodeHandle& p)
     rgb_rect_camerainfo_publisher_ = node_.advertise<CameraInfo>(rgb_registered_ns + "/camera_info", 1);
   }
 
-  if (params_.ir_enabled){
+  if (params_.ir_enabled)
+  {
     std::string ir_ns;
     private_node_.param<std::string>("ir", ir_ns, "ir");
     ir_raw_publisher_ = image_transport_.advertise(ir_ns + "/image_raw", 1);
@@ -288,31 +288,42 @@ K4AROSDevice::K4AROSDevice(const NodeHandle& n, const NodeHandle& p)
 
   imu_orientation_publisher_ = node_.advertise<Imu>("imu", 200);
 
-  if (params_.register_enabled && (params_.point_cloud || params_.rgb_point_cloud)) {
+  if (params_.register_enabled && (params_.point_cloud || params_.rgb_point_cloud))
+  {
     pointcloud_publisher_ = node_.advertise<PointCloud2>("points2", 1);
   }
 
-  if (k4a_playback_handle_) {
+  if (k4a_playback_handle_)
+  {
     // override color and depth mode configuration with settings from log file
     const k4a_color_resolution_t cm = k4a_playback_handle_.get_record_configuration().color_resolution;
-    if (cm != K4A_COLOR_RESOLUTION_OFF) {
+    if (cm != K4A_COLOR_RESOLUTION_OFF)
+    {
       params_.color_resolution = color_mode_string.at(cm);
     }
 
     const k4a_depth_mode_t dm = k4a_playback_handle_.get_record_configuration().depth_mode;
-    if (dm != K4A_DEPTH_MODE_OFF) {
+    if (dm != K4A_DEPTH_MODE_OFF)
+    {
       params_.depth_mode = depth_mode_string.at(dm);
     }
   }
 
-  // load calibration file from provided path or use default camera calibration URL at $HOME/.ros/camera_info/<cname>.yaml
-  const std::string calibration_file_name_rgb = "azure_kinect_rgb_"+serial_number_+"_"+params_.color_resolution;
-  const std::string calibration_file_name_ir = "azure_kinect_ir_"+serial_number_+"_"+params_.depth_mode;
-  const std::string calibration_url_rgb = params_.calibration_url.empty() ? std::string{} : params_.calibration_url + '/' + calibration_file_name_rgb + ".yaml";
-  const std::string calibration_url_ir = params_.calibration_url.empty() ? std::string{} : params_.calibration_url + '/' + calibration_file_name_ir + ".yaml";
+  // load calibration file from provided path or use default camera calibration URL at
+  // $HOME/.ros/camera_info/<cname>.yaml
+  const std::string calibration_file_name_rgb = "azure_kinect_rgb_" + serial_number_ + "_" + params_.color_resolution;
+  const std::string calibration_file_name_ir = "azure_kinect_ir_" + serial_number_ + "_" + params_.depth_mode;
+  const std::string calibration_url_rgb = params_.calibration_url.empty() ?
+                                              std::string{} :
+                                              params_.calibration_url + '/' + calibration_file_name_rgb + ".yaml";
+  const std::string calibration_url_ir = params_.calibration_url.empty() ?
+                                             std::string{} :
+                                             params_.calibration_url + '/' + calibration_file_name_ir + ".yaml";
 
-  ci_mngr_rgb_ = std::make_shared<camera_info_manager::CameraInfoManager>(node_rgb_, calibration_file_name_rgb, calibration_url_rgb);
-  ci_mngr_ir_ = std::make_shared<camera_info_manager::CameraInfoManager>(node_ir_, calibration_file_name_ir, calibration_url_ir);
+  ci_mngr_rgb_ = std::make_shared<camera_info_manager::CameraInfoManager>(node_rgb_, calibration_file_name_rgb,
+                                                                          calibration_url_rgb);
+  ci_mngr_ir_ =
+      std::make_shared<camera_info_manager::CameraInfoManager>(node_ir_, calibration_file_name_ir, calibration_url_ir);
 
 #if defined(K4A_BODY_TRACKING)
   if (params_.body_tracking_enabled) {    
@@ -484,22 +495,24 @@ k4a_result_t K4AROSDevice::renderDepthToROS(sensor_msgs::ImagePtr& depth_image, 
                                  k4a_depth_frame.get_buffer());
   std::string encoding;
 
-  if (params_.depth_unit == sensor_msgs::image_encodings::TYPE_32FC1) {
+  if (params_.depth_unit == sensor_msgs::image_encodings::TYPE_32FC1)
+  {
     // convert from 16 bit integer millimetre to 32 bit float metre
     depth_frame_buffer_mat.convertTo(depth_frame_buffer_mat, CV_32FC1, 1.0 / 1000.0f);
     encoding = sensor_msgs::image_encodings::TYPE_32FC1;
   }
-  else if (params_.depth_unit == sensor_msgs::image_encodings::TYPE_16UC1) {
+  else if (params_.depth_unit == sensor_msgs::image_encodings::TYPE_16UC1)
+  {
     // source data is already in 'K4A_IMAGE_FORMAT_DEPTH16' format
     encoding = sensor_msgs::image_encodings::TYPE_16UC1;
   }
-  else {
+  else
+  {
     ROS_ERROR_STREAM("Invalid depth unit: " << params_.depth_unit);
     return K4A_RESULT_FAILED;
   }
 
-  depth_image =
-      cv_bridge::CvImage(std_msgs::Header(), encoding, depth_frame_buffer_mat).toImageMsg();
+  depth_image = cv_bridge::CvImage(std_msgs::Header(), encoding, depth_frame_buffer_mat).toImageMsg();
 
   return K4A_RESULT_SUCCEEDED;
 }
@@ -1019,9 +1032,9 @@ void K4AROSDevice::framePublisherThread()
     calibration_data_.getDepthCameraInfo(ir_raw_camera_info);
   }
 
-  //First frame needs longer to arrive, we wait up to 4 seconds for it
+  // First frame needs longer to arrive, we wait up to 4 seconds for it
   const std::chrono::milliseconds firstFrameWaitTime = std::chrono::milliseconds(4 * 1000);
-  //fail if we did non receive 5 consecutive frames in a row
+  // fail if we did non receive 5 consecutive frames in a row
   const std::chrono::milliseconds regularFrameWaitTime = std::chrono::milliseconds(1000 * 5 / params_.fps);
   std::chrono::milliseconds waitTime = firstFrameWaitTime;
 
@@ -1032,7 +1045,8 @@ void K4AROSDevice::framePublisherThread()
       if (!k4a_device_.get_capture(&capture, waitTime))
       {
         ROS_FATAL("Failed to poll cameras: node cannot continue.");
-        ros::requestShutdown();
+        // ros::requestShutdown();
+        running_ = false;
         return;
       }
       else
@@ -1068,7 +1082,8 @@ void K4AROSDevice::framePublisherThread()
         else
         {
           ROS_INFO("Recording reached end of file. node cannot continue.");
-          ros::requestShutdown();
+          // ros::requestShutdown();
+          running_ = false;
           return;
         }
       }
@@ -1089,7 +1104,8 @@ void K4AROSDevice::framePublisherThread()
       // Only do compute if we have subscribers
       // Only create ir frame when we are using a device or we have an ir image.
       // Recordings may not have synchronized captures. For unsynchronized captures without ir image skip ir frame.
-      if (params_.ir_enabled && (ir_raw_publisher_.getNumSubscribers() > 0 || ir_bgr_publisher_.getNumSubscribers() > 0 ||
+      if (params_.ir_enabled &&
+          (ir_raw_publisher_.getNumSubscribers() > 0 || ir_bgr_publisher_.getNumSubscribers() > 0 ||
            ir_raw_camerainfo_publisher_.getNumSubscribers() > 0) &&
           (k4a_device_ || capture.get_ir_image() != nullptr))
       {
@@ -1114,7 +1130,8 @@ void K4AROSDevice::framePublisherThread()
           ir_raw_camerainfo_publisher_.publish(ir_raw_camera_info);
           if (ir_raw_publisher_.getNumSubscribers() > 0)
             ir_raw_publisher_.publish(ir_raw_frame);
-          if (ir_bgr_publisher_.getNumSubscribers() > 0){
+          if (ir_bgr_publisher_.getNumSubscribers() > 0)
+          {
             auto ir_bgr8 = cv_bridge::toCvCopy(ir_raw_frame, sensor_msgs::image_encodings::BGR8)->toImageMsg();
             ir_bgr_publisher_.publish(ir_bgr8);
           }
@@ -1185,7 +1202,7 @@ void K4AROSDevice::framePublisherThread()
 
 #if defined(K4A_BODY_TRACKING)
         // Publish body markers when body tracking is enabled and a depth image is available
-        if (params_.body_tracking_enabled &&  k4abt_tracker_queue_size_ < 3 &&
+        if (params_.body_tracking_enabled && k4abt_tracker_queue_size_ < 3 &&
             (body_marker_publisher_.getNumSubscribers() > 0 || body_index_map_publisher_.getNumSubscribers() > 0))
         {
           if (!k4abt_tracker_.enqueue_capture(capture))
@@ -1260,7 +1277,8 @@ void K4AROSDevice::framePublisherThread()
         // We can only rectify the color into the depth co-ordinates if the depth camera is enabled and processing depth
         // data Only create rgb rect frame when we are using a device or we have a synchronized image. Recordings may
         // not have synchronized captures. For unsynchronized captures image skip rgb rect frame.
-        if (params_.depth_enabled && params_.register_enabled && (calibration_data_.k4a_calibration_.depth_mode != K4A_DEPTH_MODE_PASSIVE_IR) &&
+        if (params_.depth_enabled && params_.register_enabled &&
+            (calibration_data_.k4a_calibration_.depth_mode != K4A_DEPTH_MODE_PASSIVE_IR) &&
             (rgb_rect_publisher_.getNumSubscribers() > 0 || rgb_rect_camerainfo_publisher_.getNumSubscribers() > 0) &&
             (k4a_device_ || (capture.get_color_image() != nullptr && capture.get_depth_image() != nullptr)))
         {
@@ -1371,7 +1389,7 @@ void K4AROSDevice::bodyPublisherThread()
           {
             //tf2_ros::TransformListener tfListener(tfBuffer);
             k4abt_body_t body = body_frame.get_body(i);
-            for (int j = 0; j < (int) K4ABT_JOINT_COUNT; ++j)
+            for (int j = 0; j < (int)K4ABT_JOINT_COUNT; ++j)
             {
               MarkerPtr markerPtr(new Marker);
               geometry_msgs::TransformStamped transform_msg; 
@@ -1461,8 +1479,23 @@ void K4AROSDevice::imuPublisherThread()
       bool read = false;
       do
       {
-        read = k4a_device_.get_imu_sample(&sample, std::chrono::milliseconds(0));
-
+        if (!k4a_device_ || !running_)
+        {
+          ROS_FATAL("Failed to poll IMU: node cannot continue.");
+          // ros::requestShutdown();
+          running_ = false;
+          return;
+        }
+        try
+        {
+          read = k4a_device_.get_imu_sample(&sample, std::chrono::milliseconds(0));
+        }
+        catch (const std::exception& e)
+        {
+          ROS_ERROR_STREAM("Failed to poll IMU: " << e.what());
+          running_ = false;
+          return;
+        }
         if (read)
         {
           if (throttling)
@@ -1491,7 +1524,8 @@ void K4AROSDevice::imuPublisherThread()
 
             if (std::abs(imu_msg->angular_velocity.x) > DBL_EPSILON ||
                 std::abs(imu_msg->angular_velocity.y) > DBL_EPSILON ||
-                std::abs(imu_msg->angular_velocity.z) > DBL_EPSILON){
+                std::abs(imu_msg->angular_velocity.z) > DBL_EPSILON)
+            {
               imu_orientation_publisher_.publish(imu_msg);
             }
           }
@@ -1538,7 +1572,8 @@ void K4AROSDevice::imuPublisherThread()
 
             if (std::abs(imu_msg->angular_velocity.x) > DBL_EPSILON ||
                 std::abs(imu_msg->angular_velocity.y) > DBL_EPSILON ||
-                std::abs(imu_msg->angular_velocity.z) > DBL_EPSILON){
+                std::abs(imu_msg->angular_velocity.z) > DBL_EPSILON)
+            {
               imu_orientation_publisher_.publish(imu_msg);
             }
 
@@ -1575,6 +1610,11 @@ std::chrono::microseconds K4AROSDevice::getCaptureTimestamp(const k4a::capture& 
   }
 
   return std::chrono::microseconds::zero();
+}
+
+bool K4AROSDevice::isRunning()
+{
+  return running_;
 }
 
 // Converts a k4a *device* timestamp to a ros::Time object

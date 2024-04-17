@@ -49,5 +49,12 @@ void K4AROSBridgeNodelet::onInit()
   }
 
   NODELET_INFO("IMU started");
+  while (ros::ok())
+  {
+    if (!k4a_device->isRunning())
+    {
+      throw nodelet::Exception("K4A ROS Nodelet Stop");
+    }
+  }
 }
 }  // namespace Azure_Kinect_ROS_Driver

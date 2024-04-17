@@ -44,7 +44,7 @@
 
 class K4AROSDevice
 {
- public:
+public:
   K4AROSDevice(const ros::NodeHandle& n = ros::NodeHandle(), const ros::NodeHandle& p = ros::NodeHandle("~"));
 
   ~K4AROSDevice();
@@ -68,6 +68,7 @@ class K4AROSDevice
   k4a_result_t getJpegRgbFrame(const k4a::capture& capture, sensor_msgs::CompressedImagePtr& jpeg_image);
 
   k4a_result_t getIrFrame(const k4a::capture& capture, sensor_msgs::ImagePtr& ir_image);
+  bool isRunning();
 
 #if defined(K4A_BODY_TRACKING)
 k4a_result_t getBodyMarker(const k4abt_body_t& body, visualization_msgs::MarkerPtr marker_msg, geometry_msgs::TransformStamped& transform_msg, int bodyNum, int jointType,
@@ -81,7 +82,7 @@ k4a_result_t getBodyMarker(const k4abt_body_t& body, visualization_msgs::MarkerP
   void imageCallback(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& info_msg);
 #endif
 
- private:
+private:
   k4a_result_t renderBGRA32ToROS(sensor_msgs::ImagePtr& rgb_frame, k4a::image& k4a_bgra_frame);
   k4a_result_t renderDepthToROS(sensor_msgs::ImagePtr& depth_image, k4a::image& k4a_depth_frame);
   k4a_result_t renderIrToROS(sensor_msgs::ImagePtr& ir_image, k4a::image& k4a_ir_frame);
@@ -183,7 +184,7 @@ k4a_result_t getBodyMarker(const k4abt_body_t& body, visualization_msgs::MarkerP
   size_t num_bodies;
 #endif
 
-  std::chrono::nanoseconds device_to_realtime_offset_{0};
+  std::chrono::nanoseconds device_to_realtime_offset_{ 0 };
 
   // Thread control
   volatile bool running_;
