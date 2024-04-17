@@ -343,29 +343,33 @@ K4AROSDevice::K4AROSDevice(const NodeHandle& n, const NodeHandle& p)
 K4AROSDevice::~K4AROSDevice()
 {
   // Start tearing down the publisher threads
-  running_ = false;
-  if (!initialized_)
-  {
-    return;
-  }
 
 #if defined(K4A_BODY_TRACKING)
-  // Join the publisher thread
-  ROS_INFO("Joining body publisher thread");
-  body_publisher_thread_.join();
-  ROS_INFO("Body publisher thread joined");
+  if (body_publisher_thread_.joinable())
+  {
+    // Join the publisher thread
+    ROS_INFO("Joining body publisher thread");
+    body_publisher_thread_.join();
+    ROS_INFO("Body publisher thread joined");
+  }
 #endif
+  if (frame_publisher_thread_.joinable())
+  {
+    // Join the publisher thread
+    ROS_INFO("Joining camera publisher thread");
+    frame_publisher_thread_.join();
+    ROS_INFO("Camera publisher thread joined");
+  }
 
-  // Join the publisher thread
-  ROS_INFO("Joining camera publisher thread");
-  frame_publisher_thread_.join();
-  ROS_INFO("Camera publisher thread joined");
+  if (imu_publisher_thread_.joinable())
+  {
+    // Join the publisher thread
+    ROS_INFO("Joining IMU publisher thread");
+    imu_publisher_thread_.join();
+    ROS_INFO("IMU publisher thread joined");
+  }
 
-  // Join the publisher thread
-  ROS_INFO("Joining IMU publisher thread");
-  imu_publisher_thread_.join();
-  ROS_INFO("IMU publisher thread joined");
-
+  // Stop the K4A device
   stopCameras();
   stopImu();
 
