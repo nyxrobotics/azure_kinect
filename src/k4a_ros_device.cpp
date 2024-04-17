@@ -1723,28 +1723,15 @@ std::vector<std::string> K4AROSDevice::getKinectPorts()
     ss >> token;
     if (token == "Bus")
     {
-      // Extract bus number
-      std::string bus_str;
-      ss >> bus_str;
-      current_bus = bus_str;
+      ss >> current_bus;
     }
-    else if (token == "idVendor")
+    else if (token == "idVendor" && ss >> token)
     {
-      std::string vendor_hex;
-      ss >> vendor_hex;
-      if (vendor_hex.size() > 2 && vendor_hex.substr(0, 2) == "0x")
-      {
-        current_id_vendor = vendor_hex.substr(2);  // Remove "0x"
-      }
+      current_id_vendor = token.substr(2);  // Remove "0x"
     }
-    else if (token == "idProduct")
+    else if (token == "idProduct" && ss >> token)
     {
-      std::string product_hex;
-      ss >> product_hex;
-      if (product_hex.size() > 2 && product_hex.substr(0, 2) == "0x")
-      {
-        current_id_product = product_hex.substr(2);  // Remove "0x"
-      }
+      current_id_product = token.substr(2);  // Remove "0x"
     }
     else if (token == "iProduct" && line_str.find("Azure Kinect") != std::string::npos)
     {
@@ -1786,54 +1773,54 @@ std::vector<std::string> K4AROSDevice::getKinectPorts()
     return device_paths;
   }
 
-  // Find the ports of Azure Kinect devices
+  std::vector<std::string> current_port_parts;  // To store the port path for each device level
   while (fgets(line, sizeof(line), lsusbTPipe) != nullptr)
   {
-    for (size_t i = 0; i < id_vendor.size(); ++i)
+    std::string line_str = line;
+    if (line_str.find("Port") != std::string::npos)
     {
-      const std::string& current_bus = bus[i];
-      const std::string& current_id_vendor = id_vendor[i];
-      const std::string& current_id_product = id_product[i];
-      std::string search_string = "ID " + current_id_vendor + ":" + current_id_product;
-      std::string current_port;
-      if (strstr(line, "Port") != nullptr)
+      size_t pos = line_str.find("Port") + 5;
+      size_t colon_pos = line_str.find(':', pos);
+      if (colon_pos != std::string::npos)
       {
-        // Extract port number
-        char* portPos = strstr(line, "Port");
-        if (portPos != nullptr)
+        std::string port_str = line_str.substr(pos, colon_pos - pos);
+        // Clear higher levels of ports when depth changes (indicated by "|" count)
+        size_t depth = std::count(line_str.begin(), line_str.end(), '|');
+        if (depth < current_port_parts.size())
         {
-          portPos += 5;  // Skip "Port "
-          char* portNumPos = strchr(portPos, ':');
-          if (portNumPos != nullptr)
-          {
-            std::string sub_port = std::string(portPos, portNumPos - portPos);
-            // Add leading zeros if needed
-            int sub_port_num = std::stoi(sub_port);
-            sub_port = std::to_string(sub_port_num);
-            while (sub_port.size() < 3)
-            {
-              sub_port = "0" + sub_port;
-            }
-            current_port += sub_port + "/";
-          }
+          current_port_parts.resize(depth);
         }
+        current_port_parts.push_back(port_str);
       }
-      else if (strstr(line, search_string.c_str()) != nullptr)
+    }
+    else
+    {
+      for (size_t i = 0; i < id_vendor.size(); ++i)
       {
-        // Check if this line contains the idVendor and idProduct of an Azure Kinect device
-        device_paths.push_back("/dev/bus/usb/" + current_bus + "/" + current_port);
-        ROS_INFO("current_bus: %s", current_bus.c_str());
-        ROS_INFO("current_port: %s", current_port.c_str());
-        ROS_INFO(line);
-        ROS_INFO("Azure Kinect device found at %s", device_paths.back().c_str());
+        std::string search_string = "ID " + id_vendor[i] + ":" + id_product[i];
+        if (line_str.find(search_string) != std::string::npos)
+        {
+          std::string full_port_path;
+          for (auto& part : current_port_parts)
+          {
+            if (!full_port_path.empty())
+              full_port_path += "/";
+            while (part.size() < 3)
+            {
+              part = "0" + part;
+            }
+            full_port_path += part;
+          }
+          device_paths.push_back("/dev/bus/usb/" + bus[i] + "/" + full_port_path);
+          ROS_INFO("Azure Kinect device found at %s", device_paths.back().c_str());
+          break;
+        }
       }
     }
   }
   pclose(lsusbTPipe);
-
   // Cancel alarm
   alarm(0);
-
   return device_paths;
 }
 
