@@ -25,25 +25,40 @@ K4AROSBridgeNodelet::K4AROSBridgeNodelet() : Nodelet(), k4a_device(nullptr)
 
 K4AROSBridgeNodelet::~K4AROSBridgeNodelet()
 {
-  timer_.stop();
   this->k4a_device.reset(nullptr);
-  this->~Nodelet();
-  // k4a_device.reset();
 }
 
 void K4AROSBridgeNodelet::watchdogTimerCallback(const ros::TimerEvent&)
 {
-  if (!k4a_device->isRunning())
+  if (!k4a_device->isRunning() || !ros::ok() || ros::isShuttingDown())
   {
-    NODELET_ERROR("K4A device is not running. Shutting down nodelet.");
-    // timer_.stop();
-    // this->k4a_device.reset(nullptr);
-    // this->~Nodelet();
-    // Terminate this nodelet without terminating the nodelet manager
-    this->~K4AROSBridgeNodelet();
-    // this->getMTPrivateNodeHandle().shutdown();
-    // ros::requestShutdown();
+    timer_.stop();
+    NODELET_ERROR("K4A device is not running. Restarting nodelet.");
+    // restartNodelet();
+    this->k4a_device.reset(nullptr);
+    sleep(3);
+    this->onInit();
+    // timer_.start();
+    // this->~K4AROSBridgeNodelet();
+    // ros::shutdown();
     // throw nodelet::Exception("K4A device is not running. Shutting down nodelet.");
+  }
+}
+
+void K4AROSBridgeNodelet::restartNodelet()
+{
+  // Unload and reload the nodelet to restart it
+  nodelet::Loader manager;
+  std::string nodelet_name = getName();                              // Get the current nodelet's name
+  std::string type = "Azure_Kinect_ROS_Driver/K4AROSBridgeNodelet";  // Get the current nodelet's type
+
+  nodelet::M_string remappings;
+  nodelet::V_string my_argv;
+
+  // Unload and reload the nodelet
+  if (!manager.unload(nodelet_name) || !manager.load(nodelet_name, type, remappings, my_argv))
+  {
+    NODELET_FATAL("Failed to restart the nodelet.");
   }
 }
 
@@ -66,7 +81,7 @@ void K4AROSBridgeNodelet::onInit()
   }
   NODELET_INFO("IMU started");
 
-  timer_ = getNodeHandle().createTimer(ros::Duration(1.0), &K4AROSBridgeNodelet::watchdogTimerCallback, this);
+  timer_ = getNodeHandle().createTimer(ros::Duration(0.1), &K4AROSBridgeNodelet::watchdogTimerCallback, this);
   NODELET_INFO("Watchdog timer started");
 }
 }  // namespace Azure_Kinect_ROS_Driver

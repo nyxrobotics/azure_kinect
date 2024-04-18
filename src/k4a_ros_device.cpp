@@ -370,15 +370,25 @@ K4AROSDevice::~K4AROSDevice()
 
   if (k4a_playback_handle_)
   {
+    ROS_INFO("Stopping K4A playback");
     k4a_playback_handle_.close();
+    ROS_INFO("K4A playback stopped");
   }
 
 #if defined(K4A_BODY_TRACKING)
   if (k4abt_tracker_)
   {
+    ROS_INFO("Stopping K4A body tracker");
     k4abt_tracker_.shutdown();
+    ROS_INFO("K4A body tracker stopped");
   }
 #endif
+  if (k4a_device_)
+  {
+    ROS_INFO("Stopping K4A device");
+    k4a_device_.close();
+    ROS_INFO("K4A device stopped");
+  }
 }
 
 k4a_result_t K4AROSDevice::startCameras()
@@ -475,10 +485,9 @@ void K4AROSDevice::stopCameras()
   }
   if (k4a_device_)
   {
-    // Stop the K4A SDK
-    ROS_INFO("Stopping K4A device");
+    ROS_INFO("Stopping K4A camera");
     k4a_device_.stop_cameras();
-    ROS_INFO("K4A device stopped");
+    ROS_INFO("K4A camera stopped");
   }
 }
 
@@ -490,7 +499,9 @@ void K4AROSDevice::stopImu()
   }
   if (k4a_device_)
   {
+    ROS_INFO("Stopping K4A IMU");
     k4a_device_.stop_imu();
+    ROS_INFO("K4A IMU stopped");
   }
 }
 

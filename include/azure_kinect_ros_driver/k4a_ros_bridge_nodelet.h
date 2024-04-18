@@ -10,7 +10,9 @@
 // Library headers
 //
 #include <ros/ros.h>
+#include <nodelet/loader.h>
 #include <nodelet/nodelet.h>
+#include <pluginlib/class_list_macros.h>
 
 // Project headers
 //
@@ -26,6 +28,7 @@ public:
 
   virtual void onInit();
   void watchdogTimerCallback(const ros::TimerEvent&);
+  void restartNodelet();
 
 private:
   std::unique_ptr<K4AROSDevice> k4a_device;
