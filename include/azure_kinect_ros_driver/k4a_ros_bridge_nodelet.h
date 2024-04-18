@@ -28,7 +28,8 @@ public:
 
   virtual void onInit();
   void watchdogTimerCallback(const ros::TimerEvent&);
-  void restartNodelet();
+  void startKinect();
+  void restartKinect();
 
 private:
   std::unique_ptr<K4AROSDevice> k4a_device;

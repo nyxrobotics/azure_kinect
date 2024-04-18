@@ -34,38 +34,12 @@ void K4AROSBridgeNodelet::watchdogTimerCallback(const ros::TimerEvent&)
   {
     timer_.stop();
     NODELET_ERROR("K4A device is not running. Restarting nodelet.");
-    // restartNodelet();
-    this->k4a_device.reset(nullptr);
-    sleep(3);
-    this->onInit();
-    // timer_.start();
-    // this->~K4AROSBridgeNodelet();
-    // ros::shutdown();
-    // throw nodelet::Exception("K4A device is not running. Shutting down nodelet.");
+    restartKinect();
+    timer_.start();
   }
 }
-
-void K4AROSBridgeNodelet::restartNodelet()
+void K4AROSBridgeNodelet::startKinect()
 {
-  // Unload and reload the nodelet to restart it
-  nodelet::Loader manager;
-  std::string nodelet_name = getName();                              // Get the current nodelet's name
-  std::string type = "Azure_Kinect_ROS_Driver/K4AROSBridgeNodelet";  // Get the current nodelet's type
-
-  nodelet::M_string remappings;
-  nodelet::V_string my_argv;
-
-  // Unload and reload the nodelet
-  if (!manager.unload(nodelet_name) || !manager.load(nodelet_name, type, remappings, my_argv))
-  {
-    NODELET_FATAL("Failed to restart the nodelet.");
-  }
-}
-
-void K4AROSBridgeNodelet::onInit()
-{
-  NODELET_INFO("K4A ROS Nodelet Start");
-
   k4a_device = std::unique_ptr<K4AROSDevice>(new K4AROSDevice(getNodeHandle(), getPrivateNodeHandle()));
   if (k4a_device->startCameras() != K4A_RESULT_SUCCEEDED)
   {
@@ -80,7 +54,43 @@ void K4AROSBridgeNodelet::onInit()
     throw nodelet::Exception("Could not start K4A_ROS_Device!");
   }
   NODELET_INFO("IMU started");
+}
 
+void K4AROSBridgeNodelet::restartKinect()
+{
+  this->k4a_device.reset(nullptr);
+  k4a_device = std::unique_ptr<K4AROSDevice>(new K4AROSDevice(getNodeHandle(), getPrivateNodeHandle()));
+  bool succeed = false;
+  while (!succeed)
+  {
+    if (k4a_device->startCameras() != K4A_RESULT_SUCCEEDED)
+    {
+      k4a_device.reset(nullptr);
+      NODELET_WARN("Could not start K4A_ROS_Device!");
+      sleep(1.0);
+      k4a_device = std::unique_ptr<K4AROSDevice>(new K4AROSDevice(getNodeHandle(), getPrivateNodeHandle()));
+      continue;
+    }
+    NODELET_INFO("Cameras started");
+
+    if (k4a_device->startImu() != K4A_RESULT_SUCCEEDED)
+    {
+      k4a_device.reset(nullptr);
+      NODELET_WARN("Could not start K4A_ROS_Device!");
+      sleep(1.0);
+      k4a_device = std::unique_ptr<K4AROSDevice>(new K4AROSDevice(getNodeHandle(), getPrivateNodeHandle()));
+      continue;
+    }
+    NODELET_INFO("IMU started");
+    succeed = true;
+    break;
+  }
+}
+
+void K4AROSBridgeNodelet::onInit()
+{
+  NODELET_INFO("K4A ROS Nodelet Start");
+  startKinect();
   timer_ = getNodeHandle().createTimer(ros::Duration(0.1), &K4AROSBridgeNodelet::watchdogTimerCallback, this);
   NODELET_INFO("Watchdog timer started");
 }
