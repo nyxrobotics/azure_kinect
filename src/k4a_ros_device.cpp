@@ -485,9 +485,9 @@ void K4AROSDevice::stopCameras()
   }
   if (k4a_device_)
   {
-    ROS_INFO("Stopping K4A camera");
+    ROS_INFO("Stopping K4A cameras");
     k4a_device_.stop_cameras();
-    ROS_INFO("K4A camera stopped");
+    ROS_INFO("K4A cameras stopped");
   }
 }
 
